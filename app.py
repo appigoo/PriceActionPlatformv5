@@ -1269,7 +1269,7 @@ def _render_volatility_spike(df, ticker: str, interval: str,
         </div>""", unsafe_allow_html=True)
     with c3:
         st.markdown(f"""<div class='metric-card' style='text-align:center'>
-          <div class='metric-label'>最大成交量波動幅（2根）</div>
+          <div class='metric-label'>最大成交量放量幅（2根）</div>
           <div class='metric-value' style='font-size:1.2rem;color:{v_col}'>
             {max(b1['vol_abs'],b2['vol_abs']):+.2f}%</div>
           <div class='metric-sub' style='color:#9e9890'>基準均值 {b1['avg_vol_abs']:.2f}%</div>
@@ -1343,14 +1343,14 @@ def _render_volatility_spike(df, ticker: str, interval: str,
         f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>收盤</th>"
         f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>價格漲跌幅</th>"
         f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#c0392b'>價格倍數</th>"
-        f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>成交量變幅</th>"
+        f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>成交量放量幅</th>"
         f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#c0392b'>量倍數</th>"
         f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>狀態</th>"
         f"</tr></thead>"
         f"<tbody>{_tbl_row(b2)}{_tbl_row(b1)}</tbody>"
         f"</table>"
         f"<div style='padding:5px 10px;font-size:.67rem;color:#b8b2aa;border-top:1px solid #e0dbd2'>"
-        f"基準：前{int(x_val)}根均值（不含最新兩根）— 價格基準 {b1['avg_price_abs']:.2f}% ／ 量基準 {b1['avg_vol_abs']:.2f}%</div>"
+        f"基準：前{int(x_val)}根均值（不含最新兩根，量縮根不計）— 價格基準 {b1['avg_price_abs']:.2f}% ／ 放量基準 {b1['avg_vol_abs']:.2f}%</div>"
         f"</div>"
     )
     st.markdown(tbl_html, unsafe_allow_html=True)

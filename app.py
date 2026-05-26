@@ -1232,116 +1232,128 @@ def _render_volatility_spike(df, ticker: str, interval: str,
     # ── 計算 ──────────────────────────────────────────────────────────────────
     result = compute_volatility_spike(df, x=int(x_val))
     if result is None:
-        st.info(f"數據不足（需要至少 {int(x_val)+2} 根K線）")
+        st.info(f"數據不足（需要至少 {int(x_val)+3} 根K線）")
         return
 
-    lat     = result['latest']
+    from analysis.volatility_spike import get_triggered_two_bars, bar_status
+    b1      = result['bar_minus1']   # 第-1根
+    b2      = result['bar_minus2']   # 第-2根
+    bars    = result['bars']
     n       = result['n']
     dates   = result['dates']
-    bars    = result['bars']
-    p_ratio = lat['price_ratio']
-    v_ratio = lat['vol_ratio']
-    both_triggered = p_ratio >= y_val and v_ratio >= y_val
+
+    # 任何一根同時觸發即為 any_triggered
+    trig_two   = get_triggered_two_bars(result, y_val)
+    any_triggered = len(trig_two) > 0
     triggered_hist = find_triggered_bars(result, y_val)
 
-    # ── 最新狀態卡片 ─────────────────────────────────────────────────────────
-    c1, c2, c3, c4 = st.columns(4)
-    p_col = "#c0392b" if p_ratio >= y_val else ("#b07d2e" if p_ratio >= y_val*0.7 else "#3d8c5f")
-    v_col = "#c0392b" if v_ratio >= y_val else ("#b07d2e" if v_ratio >= y_val*0.7 else "#3d8c5f")
-    t_col = "#c0392b" if both_triggered else "#9e9890"
+    # ── 四張摘要卡片（取兩根中較大的倍數顯示）────────────────────────────────
+    max_p = max(b1['price_ratio'], b2['price_ratio'])
+    max_v = max(b1['vol_ratio'],   b2['vol_ratio'])
+    p_col = "#c0392b" if max_p >= y_val else ("#b07d2e" if max_p >= y_val*0.7 else "#3d8c5f")
+    v_col = "#c0392b" if max_v >= y_val else ("#b07d2e" if max_v >= y_val*0.7 else "#3d8c5f")
 
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
         st.markdown(f"""<div class='metric-card' style='text-align:center'>
-          <div class='metric-label'>最新價格波動幅</div>
-          <div class='metric-value' style='font-size:1.3rem;color:{p_col}'>{lat['price_abs']:+.2f}%</div>
-          <div class='metric-sub' style='color:#9e9890'>前{int(x_val)}根均 {lat['avg_price_abs']:.2f}%</div>
+          <div class='metric-label'>最大價格波動幅（2根）</div>
+          <div class='metric-value' style='font-size:1.2rem;color:{p_col}'>
+            {max(b1['price_abs'],b2['price_abs']):+.2f}%</div>
+          <div class='metric-sub' style='color:#9e9890'>基準均值 {b1['avg_price_abs']:.2f}%</div>
         </div>""", unsafe_allow_html=True)
     with c2:
         st.markdown(f"""<div class='metric-card' style='text-align:center'>
-          <div class='metric-label'>價格波動倍數</div>
-          <div class='metric-value' style='font-size:1.5rem;color:{p_col}'>{p_ratio:.2f}x</div>
+          <div class='metric-label'>最大價格波動倍數</div>
+          <div class='metric-value' style='font-size:1.5rem;color:{p_col}'>{max_p:.2f}x</div>
           <div class='metric-sub' style='color:#9e9890'>門檻 {y_val:.1f}x</div>
         </div>""", unsafe_allow_html=True)
     with c3:
         st.markdown(f"""<div class='metric-card' style='text-align:center'>
-          <div class='metric-label'>最新成交量變幅</div>
-          <div class='metric-value' style='font-size:1.3rem;color:{v_col}'>{lat['vol_abs']:+.2f}%</div>
-          <div class='metric-sub' style='color:#9e9890'>前{int(x_val)}根均 {lat['avg_vol_abs']:.2f}%</div>
+          <div class='metric-label'>最大成交量波動幅（2根）</div>
+          <div class='metric-value' style='font-size:1.2rem;color:{v_col}'>
+            {max(b1['vol_abs'],b2['vol_abs']):+.2f}%</div>
+          <div class='metric-sub' style='color:#9e9890'>基準均值 {b1['avg_vol_abs']:.2f}%</div>
         </div>""", unsafe_allow_html=True)
     with c4:
         st.markdown(f"""<div class='metric-card' style='text-align:center'>
-          <div class='metric-label'>成交量波動倍數</div>
-          <div class='metric-value' style='font-size:1.5rem;color:{v_col}'>{v_ratio:.2f}x</div>
+          <div class='metric-label'>最大成交量波動倍數</div>
+          <div class='metric-value' style='font-size:1.5rem;color:{v_col}'>{max_v:.2f}x</div>
           <div class='metric-sub' style='color:#9e9890'>門檻 {y_val:.1f}x</div>
         </div>""", unsafe_allow_html=True)
 
     st.markdown("")
 
-    # 警報狀態橫幅
-    if both_triggered:
+    # ── 警報橫幅 ─────────────────────────────────────────────────────────────
+    if any_triggered:
+        trig_labels = " ＆ ".join([b["bar_label"] for b in trig_two])
         st.markdown(
             f"<div style='background:#fdecea;border:2px solid #c0392b;border-radius:8px;"
             f"padding:.75rem 1.2rem;text-align:center;font-weight:700;color:#c0392b;"
-            f"font-size:.95rem'>⚡ 異常波動警報觸發！價格 {p_ratio:.2f}x ＆ 成交量 {v_ratio:.2f}x "
-            f"均超過 {y_val:.1f}x 門檻</div>",
+            f"font-size:.92rem'>⚡ 異常波動警報！{trig_labels} 同時超過 {y_val:.1f}x 門檻</div>",
             unsafe_allow_html=True)
     else:
-        missing = []
-        if p_ratio < y_val: missing.append(f"價格波動不足（{p_ratio:.2f}x < {y_val:.1f}x）")
-        if v_ratio < y_val: missing.append(f"成交量波動不足（{v_ratio:.2f}x < {y_val:.1f}x）")
         st.markdown(
             f"<div style='background:#f9f7f4;border:1px solid #e0dbd2;border-radius:8px;"
             f"padding:.6rem 1.2rem;text-align:center;color:#9e9890;font-size:.82rem'>"
-            f"○ 未觸發　{'　'.join(missing)}</div>",
+            f"○ 未觸發（-1根 價格{b1['price_ratio']:.2f}x 量{b1['vol_ratio']:.2f}x"
+            f"　-2根 價格{b2['price_ratio']:.2f}x 量{b2['vol_ratio']:.2f}x）</div>",
             unsafe_allow_html=True)
 
     st.markdown("")
 
-    # ── 詳細數據表格 ──────────────────────────────────────────────────────────
-    st.markdown("<div class='section-heading' style='font-size:.85rem'>📋 最新一根 vs 前{X}根均值</div>".replace('{X}', str(int(x_val))),
-                unsafe_allow_html=True)
+    # ── 雙根詳細表格 ─────────────────────────────────────────────────────────
+    st.markdown(
+        f"<div class='section-heading' style='font-size:.85rem'>"
+        f"📋 最新兩根 vs 基準（前{int(x_val)}根，統一基準）</div>",
+        unsafe_allow_html=True)
 
-    tbl_rows = ""
-    rows_data = [
-        ("收盤漲跌幅",
-         f"{lat['price_abs']:+.2f}%",
-         f"{lat['avg_price_abs']:.2f}%",
-         f"{p_ratio:.2f}x",
-         p_ratio >= y_val),
-        ("成交量變化幅",
-         f"{lat['vol_abs']:+.2f}%",
-         f"{lat['avg_vol_abs']:.2f}%",
-         f"{v_ratio:.2f}x",
-         v_ratio >= y_val),
-    ]
-    for label, latest_v, avg_v, ratio, triggered in rows_data:
-        bg     = "#fdecea" if triggered else "#f9f7f4"
-        r_col  = "#c0392b" if triggered else "#6b6560"
-        flag   = "⚡ 超標" if triggered else "○ 正常"
-        tbl_rows += (
+    def _tbl_row(bar: dict) -> str:
+        status, bg = bar_status(bar, y_val)
+        p_ok  = bar['price_ratio'] >= y_val
+        v_ok  = bar['vol_ratio']   >= y_val
+        pc    = "#c0392b" if p_ok else "#6b6560"
+        vc    = "#c0392b" if v_ok else "#6b6560"
+        sc    = "#c0392b" if (p_ok and v_ok) else ("#b07d2e" if (p_ok or v_ok) else "#9e9890")
+        return (
             f"<tr style='background:{bg}'>"
-            f"<td style='padding:8px 12px;font-size:.82rem;color:#6b6560'>{label}</td>"
-            f"<td style='padding:8px 12px;font-family:IBM Plex Mono,monospace;font-size:.82rem;font-weight:600'>{latest_v}</td>"
-            f"<td style='padding:8px 12px;font-family:IBM Plex Mono,monospace;font-size:.82rem;color:#9e9890'>{avg_v}</td>"
-            f"<td style='padding:8px 12px;font-family:IBM Plex Mono,monospace;font-size:.9rem;font-weight:700;color:{r_col}'>{ratio}</td>"
-            f"<td style='padding:8px 12px;font-size:.78rem;color:{r_col}'>{flag}</td>"
+            f"<td style='padding:8px 10px;font-size:.8rem;font-weight:600;color:#1a1a1a'>"
+            f"{bar['bar_label']}</td>"
+            f"<td style='padding:8px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem;color:#6b6560'>"
+            f"{str(bar['date'])[:16]}</td>"
+            f"<td style='padding:8px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
+            f"${bar['close']:.2f}</td>"
+            f"<td style='padding:8px 10px;font-family:IBM Plex Mono,monospace;font-size:.8rem;color:{pc}'>"
+            f"{bar['price_abs']:+.2f}%</td>"
+            f"<td style='padding:8px 10px;font-family:IBM Plex Mono,monospace;font-size:.88rem;"
+            f"font-weight:700;color:{pc}'>{bar['price_ratio']:.2f}x</td>"
+            f"<td style='padding:8px 10px;font-family:IBM Plex Mono,monospace;font-size:.8rem;color:{vc}'>"
+            f"{bar['vol_abs']:+.2f}%</td>"
+            f"<td style='padding:8px 10px;font-family:IBM Plex Mono,monospace;font-size:.88rem;"
+            f"font-weight:700;color:{vc}'>{bar['vol_ratio']:.2f}x</td>"
+            f"<td style='padding:8px 10px;font-size:.8rem;font-weight:700;color:{sc}'>{status}</td>"
             f"</tr>"
         )
 
-    st.markdown(
+    tbl_html = (
         f"<div style='border:1px solid #e0dbd2;border-radius:8px;overflow:hidden'>"
         f"<table style='width:100%;border-collapse:collapse'>"
         f"<thead><tr style='background:#f9f7f4;border-bottom:1.5px solid #e0dbd2'>"
-        f"<th style='padding:7px 12px;text-align:left;font-size:.72rem;color:#9e9890'>指標</th>"
-        f"<th style='padding:7px 12px;text-align:left;font-size:.72rem;color:#9e9890'>最新一根</th>"
-        f"<th style='padding:7px 12px;text-align:left;font-size:.72rem;color:#9e9890'>前{int(x_val)}根均值</th>"
-        f"<th style='padding:7px 12px;text-align:left;font-size:.72rem;color:#9e9890'>波動倍數</th>"
-        f"<th style='padding:7px 12px;text-align:left;font-size:.72rem;color:#9e9890'>狀態</th>"
+        f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>K線</th>"
+        f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>時間</th>"
+        f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>收盤</th>"
+        f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>價格漲跌幅</th>"
+        f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#c0392b'>價格倍數</th>"
+        f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>成交量變幅</th>"
+        f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#c0392b'>量倍數</th>"
+        f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>狀態</th>"
         f"</tr></thead>"
-        f"<tbody>{tbl_rows}</tbody>"
-        f"</table></div>",
-        unsafe_allow_html=True
+        f"<tbody>{_tbl_row(b2)}{_tbl_row(b1)}</tbody>"
+        f"</table>"
+        f"<div style='padding:5px 10px;font-size:.67rem;color:#b8b2aa;border-top:1px solid #e0dbd2'>"
+        f"基準：前{int(x_val)}根均值（不含最新兩根）— 價格基準 {b1['avg_price_abs']:.2f}% ／ 量基準 {b1['avg_vol_abs']:.2f}%</div>"
+        f"</div>"
     )
+    st.markdown(tbl_html, unsafe_allow_html=True)
 
     st.markdown("")
 
@@ -1489,7 +1501,7 @@ def _render_volatility_spike(df, ticker: str, interval: str,
                 f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.82rem;"
                 f"font-weight:700;color:#c0392b'>{p_r:.2f}x</td>"
                 f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
-                f"{v_abs:+.2f}%</td>"
+                f"{v_abs/1e6:+.2f}M</td>"
                 f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.82rem;"
                 f"font-weight:700;color:#c0392b'>{v_r:.2f}x</td>"
                 f"<td style='padding:6px 10px;font-size:.76rem'>{grade}</td>"
@@ -1504,7 +1516,7 @@ def _render_volatility_spike(df, ticker: str, interval: str,
             f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>收盤價</th>"
             f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>價格漲跌幅</th>"
             f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#c0392b'>價格倍數</th>"
-            f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>成交量變幅</th>"
+            f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>成交量差值</th>"
             f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#c0392b'>成交量倍數</th>"
             f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>強度</th>"
             f"</tr></thead>"
@@ -1513,17 +1525,21 @@ def _render_volatility_spike(df, ticker: str, interval: str,
             unsafe_allow_html=True
         )
 
-    # ── Telegram 警報 ─────────────────────────────────────────────────────────
-    if tg_enabled and both_triggered:
-        spike_key = f"{ticker}_{str(lat['date'])[:16]}"
-        if spike_key not in st.session_state.spike_monitor_fired:
+    # ── Telegram 警報（任何一根觸發即發）────────────────────────────────────
+    if tg_enabled and trig_two:
+        from analysis.volatility_spike import build_spike_tg_msg
+        from analysis.telegram_bot    import send_telegram_alert
+        for trig_bar in trig_two:
+            spike_key = f"{ticker}_{trig_bar['bar_label']}_{str(trig_bar['date'])[:16]}"
+            if spike_key in st.session_state.spike_monitor_fired:
+                continue
             st.session_state.spike_monitor_fired[spike_key] = True
-            from analysis.volatility_spike import build_spike_tg_msg
-            from analysis.telegram_bot import send_telegram_alert
-            msg = build_spike_tg_msg(ticker, interval, result, y_val, lat)
+            msg = build_spike_tg_msg(ticker, interval, result, y_val, trig_bar)
             if send_telegram_alert(tg_token, tg_chat_id, msg):
-                st.toast(f"⚡ {ticker} 異常波動警報已發送！價格 {p_ratio:.2f}x ＆ 量 {v_ratio:.2f}x",
-                         icon="⚡")
+                st.toast(
+                    f"⚡ {ticker} {trig_bar['bar_label']} 異常波動！"
+                    f"價格 {trig_bar['price_ratio']:.2f}x ＆ 量 {trig_bar['vol_ratio']:.2f}x",
+                    icon="⚡")
 
 
 # ── 跳空監控核心 ──────────────────────────────────────────────────────────────
@@ -2139,26 +2155,23 @@ def _run_spike_monitor(stock_list: list, interval: str, bar_count: int):
             if result is None:
                 continue
 
-            lat = result['latest']
-            p_r = lat['price_ratio']
-            v_r = lat['vol_ratio']
-
-            if p_r < y_val or v_r < y_val:
-                continue   # 未同時觸發
-
-            # 去重 key：ticker + 時間精確到分鐘
-            spike_key = f"{ticker}_{str(lat['date'])[:16]}"
-            if spike_key in st.session_state.spike_monitor_fired:
+            from analysis.volatility_spike import get_triggered_two_bars
+            trig_two = get_triggered_two_bars(result, y_val)
+            if not trig_two:
                 continue
 
-            st.session_state.spike_monitor_fired[spike_key] = True
-
-            msg = build_spike_tg_msg(ticker, interval, result, y_val, lat)
-            send_telegram_alert(tg_t, tg_c, msg)
-            st.toast(
-                f"⚡ {ticker} 異常波動！價格 {p_r:.2f}x ＆ 量 {v_r:.2f}x",
-                icon="⚡"
-            )
+            for trig_bar in trig_two:
+                spike_key = f"{ticker}_{trig_bar['bar_label']}_{str(trig_bar['date'])[:16]}"
+                if spike_key in st.session_state.spike_monitor_fired:
+                    continue
+                st.session_state.spike_monitor_fired[spike_key] = True
+                msg = build_spike_tg_msg(ticker, interval, result, y_val, trig_bar)
+                send_telegram_alert(tg_t, tg_c, msg)
+                st.toast(
+                    f"⚡ {ticker} {trig_bar['bar_label']} 異常波動！"
+                    f"價格 {trig_bar['price_ratio']:.2f}x ＆ 量 {trig_bar['vol_ratio']:.2f}x",
+                    icon="⚡"
+                )
 
         except Exception:
             continue

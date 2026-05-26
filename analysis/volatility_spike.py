@@ -38,14 +38,17 @@ def compute_volatility_spike(df: pd.DataFrame, x: int = 20) -> dict | None:
     if n < x + 3:
         return None
 
-    # ── 計算每根的絕對變化量 ─────────────────────────────────────────────────
+    # ── 計算每根的變化量 ──────────────────────────────────────────────────────
+    # 價格：取絕對值（暴漲和暴跌都算異常）
+    # 成交量：不取絕對值，只有量增（>0）才算有效訊號，量縮設為 0
     price_abs = np.zeros(n)
     vol_abs   = np.zeros(n)
     for i in range(1, n):
         if closes[i-1] > 0:
             price_abs[i] = abs(closes[i] - closes[i-1]) / closes[i-1] * 100
         if vols[i-1] > 0:
-            vol_abs[i]   = abs(vols[i]   - vols[i-1])   / vols[i-1]   * 100
+            raw_vol_chg  = (vols[i] - vols[i-1]) / vols[i-1] * 100
+            vol_abs[i]   = max(raw_vol_chg, 0.0)   # 量縮設為 0，不觸發
 
     # ── 歷史序列計算（每根對比其前X根基準）──────────────────────────────────
     price_ratios  = np.full(n, np.nan)
@@ -54,7 +57,10 @@ def compute_volatility_spike(df: pd.DataFrame, x: int = 20) -> dict | None:
 
     for i in range(x + 1, n):
         avg_p = np.mean(price_abs[i-x:i]) or 1e-9
-        avg_v = np.mean(vol_abs[i-x:i])   or 1e-9
+        # 基準均值只計算量增的根（排除量縮的0值），使基準更準確
+        base_v_window = vol_abs[i-x:i]
+        pos_v = base_v_window[base_v_window > 0]
+        avg_v = float(np.mean(pos_v)) if len(pos_v) > 0 else 1e-9
         pr    = price_abs[i] / avg_p
         vr    = vol_abs[i]   / avg_v
 
@@ -91,7 +97,9 @@ def compute_volatility_spike(df: pd.DataFrame, x: int = 20) -> dict | None:
     base_price = price_abs[base_start:base_end]
     base_vol   = vol_abs[base_start:base_end]
     avg_p_base = float(np.mean(base_price)) if np.mean(base_price) > 0 else 1e-9
-    avg_v_base = float(np.mean(base_vol))   if np.mean(base_vol)   > 0 else 1e-9
+    # 基準成交量均值只計算量增的根
+    pos_base_v = base_vol[base_vol > 0]
+    avg_v_base = float(np.mean(pos_base_v)) if len(pos_base_v) > 0 else 1e-9
 
     def _make_bar(offset: int, label: str) -> dict:
         """offset=1 → bar[-1], offset=2 → bar[-2]"""
@@ -194,10 +202,10 @@ def build_spike_tg_msg(ticker: str, interval: str, result: dict,
         "• 前" + str(x) + "根基準均值：" + f"{b['avg_price_abs']:.2f}%",
         "• 波動倍數：*" + f"{b['price_ratio']:.2f}x*",
         "",
-        "📦 *成交量波動*",
-        "• 量變幅：" + f"{b['vol_abs']:+.2f}%（對比前一根）",
-        "• 前" + str(x) + "根基準均值：" + f"{b['avg_vol_abs']:.2f}%",
-        "• 波動倍數：*" + f"{b['vol_ratio']:.2f}x*",
+        "📦 *成交量放量*",
+        "• 量增幅：+" + f"{b['vol_abs']:.2f}%（對比前一根）",
+        "• 前" + str(x) + "根量增均值：" + f"{b['avg_vol_abs']:.2f}%",
+        "• 放量倍數：*" + f"{b['vol_ratio']:.2f}x*",
         "",
         "💰 收盤：$" + f"{b['close']:.2f}",
         "時間：" + str(b['date'])[:16],

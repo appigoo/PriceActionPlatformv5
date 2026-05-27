@@ -21,9 +21,10 @@ def scan_gaps(df: pd.DataFrame) -> list[dict]:
     dates  = df.index
     n      = len(df)
 
-    # ── FIX 1：用 rolling mean 計算20日均量，避免 convolve padding zeros ────
+    # ── 計算前20根均量（不含當根本身）──────────────────────────────────────
+    # 用 shift(1) 先移位，再 rolling，確保均值只包含「當根以前」的20根
     vol_series = pd.Series(vols)
-    avg_vol20  = vol_series.rolling(20, min_periods=1).mean().values
+    avg_vol20  = vol_series.shift(1).rolling(20, min_periods=1).mean().values
 
     for i in range(1, n):
         cur_high   = float(highs[i])

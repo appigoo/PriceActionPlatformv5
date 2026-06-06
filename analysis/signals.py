@@ -206,8 +206,27 @@ def generate_signals(df, patterns, market_struct, volume_analysis, sr_levels) ->
 
     reward_risk_ratio = reward / risk if risk > 0 else 0
     rrr = f"1 : {reward_risk_ratio:.1f}" if risk > 0 else "N/A"
+
     # 風報比警告旗標
     rrr_poor = reward_risk_ratio < 1.0
+
+    # 距目標太近警告：收益 < 1.5 ATR → 不適合此刻入場
+    reward_atr_ratio = reward / atr if atr > 0 else 0
+    too_close_to_target = reward_atr_ratio < 1.5   # 收益空間不足1.5個ATR
+
+    # 組合警告文字
+    if primary == "SELL" and too_close_to_target:
+        entry_warning = (f"當前價 ${current:.2f} 距支撐 ${key_support:.2f} 僅 "
+                         f"${reward:.2f}（{reward_atr_ratio:.1f} ATR），"
+                         f"做空收益空間不足，建議等待反彈至阻力 ${key_resistance:.2f} 附近再做空。")
+    elif primary == "BUY" and too_close_to_target:
+        entry_warning = (f"當前價 ${current:.2f} 距阻力 ${key_resistance:.2f} 僅 "
+                         f"${reward:.2f}（{reward_atr_ratio:.1f} ATR），"
+                         f"做多收益空間不足，建議等待回調至支撐 ${key_support:.2f} 附近再做多。")
+    elif rrr_poor:
+        entry_warning = f"風報比過低（{rrr}），當前位置不建議入場。"
+    else:
+        entry_warning = ""
 
     macro_trend = market_struct.get('trend', '橫盤')
     mid_dir = ("多頭 ▲" if "多頭" in macro_trend
@@ -244,7 +263,10 @@ def generate_signals(df, patterns, market_struct, volume_analysis, sr_levels) ->
             "stop_loss":        stop_loss,
             "rrr":              rrr,
             "rrr_poor":         rrr_poor,
+            "too_close":        too_close_to_target,
+            "entry_warning":    entry_warning,
             "atr":              atr,
+            "reward_atr":       reward_atr_ratio,
         },
         "signal_history": signal_history,
     }

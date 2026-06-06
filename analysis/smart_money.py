@@ -105,6 +105,20 @@ def analyze_smart_money(df: pd.DataFrame, vol_analysis: dict) -> dict:
             dist += 10
             dist_factors.append("高位持續縮量（籌碼鎖定完成）")
 
+    # ── 大跌幅直接提升派發風險（即使不在高位）──────────────────────────────
+    price_chg_pct = 0.0
+    if n >= 2 and closes[-2] > 0:
+        price_chg_pct = (closes[-1] - closes[-2]) / closes[-2] * 100
+    if price_chg_pct <= -3.0:
+        drop_dist = int(abs(price_chg_pct) * 8)  # 每跌1%加8分
+        dist = max(dist, drop_dist)
+        if f"大跌" not in ' '.join(dist_factors):
+            dist_factors.append(f"大跌 {price_chg_pct:.1f}%（賣方主導，派發風險提升）")
+    if price_chg_pct <= -5.0:
+        dist = max(dist, 60)
+    if price_chg_pct <= -7.0:
+        dist = max(dist, 80)
+
     dist = min(dist, 100)
 
     # ── 行為分類 ──────────────────────────────────────────────────────────

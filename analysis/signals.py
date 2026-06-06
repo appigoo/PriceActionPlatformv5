@@ -182,23 +182,21 @@ def generate_signals(df, patterns, market_struct, volume_analysis, sr_levels) ->
     atr = float(np.mean(tr_list)) if tr_list else current * 0.02
 
     if primary == "BUY":
-        # 止損：支撐下方 1ATR（不超過支撐 3%）
-        sl_from_sup = key_support - atr
-        sl_from_pct = current * 0.97
-        stop_loss   = max(sl_from_sup, sl_from_pct)   # 取較寬的（不過緊）
-        target      = key_resistance
-        risk        = max(current - stop_loss, 0.01)
-        reward      = max(target  - current,  0.01)
-        short_dir   = "看多 📈"
+        # 止損：支撐下方 0.5ATR（貼近支撐，不過緊也不過寬）
+        stop_loss = key_support - atr * 0.5
+        stop_loss = max(stop_loss, current * 0.94)   # 最多虧 6%
+        target    = key_resistance
+        risk      = max(current - stop_loss, 0.01)
+        reward    = max(target  - current,  0.01)
+        short_dir = "看多 📈"
     elif primary == "SELL":
-        # 止損：阻力上方 1ATR（不超過阻力 3%）
-        sl_from_res = key_resistance + atr
-        sl_from_pct = current * 1.03
-        stop_loss   = min(sl_from_res, sl_from_pct)   # 取較窄的（不過寬）
-        target      = key_support
-        risk        = max(stop_loss - current, 0.01)
-        reward      = max(current   - target,  0.01)
-        short_dir   = "看空 📉"
+        # 止損：阻力上方 0.5ATR（以阻力為基準，不用當前價）
+        stop_loss = key_resistance + atr * 0.5
+        stop_loss = min(stop_loss, current * 1.06)   # 最多虧 6%
+        target    = key_support
+        risk      = max(stop_loss - current, 0.01)
+        reward    = max(current   - target,  0.01)
+        short_dir = "看空 📉"
     else:
         stop_loss = current - atr
         target    = current + atr

@@ -144,12 +144,33 @@ def generate_ai_analysis(ticker, df, patterns, market_struct, volume_analysis,
     # 5. 型態學（全期數據長期結構）
     # ══════════════════════════════════════════════════════════════════════════
     if macro_pat:
+        bull_macro = [p for p in macro_pat if p['bias'] == 'bull']
+        bear_macro = [p for p in macro_pat if p['bias'] == 'bear']
+
+        # 主導型態：bar_idx 最大（最近偵測到）的優先
+        sorted_macro = sorted(macro_pat, key=lambda p: p.get('bar_idx', 0), reverse=True)
+        dominant     = sorted_macro[0]
+        dom_color    = "#3d8c5f" if dominant['bias']=='bull' else "#c0392b"
+        dom_dir      = "多頭" if dominant['bias']=='bull' else "空頭"
+
         items = []
-        for p in macro_pat:
-            color = "#3d8c5f" if p['bias']=='bull' else ("#c0392b" if p['bias']=='bear' else "#b07d2e")
-            d = p.get('desc', '')
+        # 矛盾型態警告
+        if bull_macro and bear_macro:
             items.append(
-                f"<span style='font-weight:700;color:{color}'>{p['name']}</span>"
+                f"<div style='background:#fff3e0;border-radius:5px;padding:5px 8px;"
+                f"font-size:.8rem;color:#b07d2e;margin-bottom:6px'>"
+                f"⚠️ <b>多空型態並存</b>（多頭 {len(bull_macro)} 個 / 空頭 {len(bear_macro)} 個）"
+                f"，以最近偵測到的 <b style='color:{dom_color}'>{dominant['name'].split()[0]}</b>"
+                f"（{dom_dir}）為主導，其餘供參考。</div>"
+            )
+
+        for p in sorted_macro:
+            color  = "#3d8c5f" if p['bias']=='bull' else ("#c0392b" if p['bias']=='bear' else "#b07d2e")
+            d      = p.get('desc', '')
+            is_dom = (p is sorted_macro[0])
+            tag    = "<span style='background:#f0f0f0;border-radius:3px;padding:1px 5px;"                      "font-size:.68rem;margin-right:4px;color:#6b6560'>主導</span>" if is_dom else                      "<span style='background:#f9f9f9;border-radius:3px;padding:1px 5px;"                      "font-size:.68rem;margin-right:4px;color:#b8b2aa'>參考</span>"
+            items.append(
+                f"{tag}<span style='font-weight:700;color:{color}'>{p['name']}</span>"
                 f"<span style='color:#6b6560;margin-left:6px'>{d}</span>"
             )
         blocks.append(_section("型態學", "全期數據長期結構", items, "#b07d2e"))

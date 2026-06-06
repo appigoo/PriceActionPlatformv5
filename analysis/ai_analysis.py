@@ -140,6 +140,16 @@ def generate_ai_analysis(ticker, df, patterns, market_struct, volume_analysis,
             )
         blocks.append(_section("三K以上型態", "最新 -5 ~ -1 根", items, "#3d8c5f"))
 
+    # ── 型態學主導判斷（預先計算，供 section 5 和 section 9 共用）────────────
+    _recent_bias = "bear" if any(p['bias']=='bear' for p in
+                   (patterns.get('single_k',[]) + patterns.get('double_k',[]))) else "bull"
+    def _macro_sort_key(p):
+        return (p.get('urgency', 1), 1 if p['bias'] == _recent_bias else 0)
+
+    sorted_macro       = sorted(macro_pat, key=_macro_sort_key, reverse=True) if macro_pat else []
+    dominant           = sorted_macro[0] if sorted_macro else None
+    dominant_pat_name  = dominant['name'].split()[0] if dominant else ""
+
     # ══════════════════════════════════════════════════════════════════════════
     # 5. 型態學（全期數據長期結構）
     # ══════════════════════════════════════════════════════════════════════════
@@ -147,18 +157,6 @@ def generate_ai_analysis(ticker, df, patterns, market_struct, volume_analysis,
         bull_macro = [p for p in macro_pat if p['bias'] == 'bull']
         bear_macro = [p for p in macro_pat if p['bias'] == 'bear']
 
-        # 主導型態優先順序：
-        # 1. urgency=2（已突破/跌破頸線）優先於 urgency=1（待確認）
-        # 2. 同 urgency 內，與近期 K 線方向一致的優先
-        # 這樣「M頂已跌破頸線」會優先於「W底待突破」
-        recent_bias = "bear" if any(p['bias']=='bear' for p in
-                      (patterns.get('single_k',[]) + patterns.get('double_k',[]))) else "bull"
-        def _macro_sort_key(p):
-            urgency  = p.get('urgency', 1)
-            bias_match = 1 if p['bias'] == recent_bias else 0
-            return (urgency, bias_match)
-
-        sorted_macro = sorted(macro_pat, key=_macro_sort_key, reverse=True)
         dominant     = sorted_macro[0]
         dom_color    = "#3d8c5f" if dominant['bias']=='bull' else "#c0392b"
         dom_dir      = "多頭" if dominant['bias']=='bull' else "空頭"
@@ -232,7 +230,7 @@ def generate_ai_analysis(ticker, df, patterns, market_struct, volume_analysis,
     macro_targets = signals.get('macro_targets', [])
     if macro_targets:
         # 找出與主導型態對應的目標（urgency最高的）
-        dominant_pat_name = sorted_macro[0]['name'].split()[0] if macro_pat and 'sorted_macro' in dir() else ""
+        # dominant_pat_name 已在上方預先計算（sorted_macro 已在 section 5 前定義）
         items = []
         for mt in macro_targets:
             pct      = abs(mt['target'] - current) / current * 100

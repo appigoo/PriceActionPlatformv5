@@ -1951,19 +1951,37 @@ def render_ticker(ctx: dict):
         _kr = trade.get('key_resistance',0)
         _bp = trade.get('breakout_level',0)
         _sl = trade.get('stop_loss',0)
-        _rrr_str  = trade.get('rrr', '-')
-        _rrr_poor = trade.get('rrr_poor', False)
-        _atr_val  = trade.get('atr', 0)
-        _rrr_warn = (
-            "<div style='background:#fdecea;border-radius:6px;padding:6px 10px;"
-            "font-size:.76rem;color:#c0392b;margin-top:6px'>"
-            + "⚠️ 風報比過低（" + _rrr_str + "），當前位置不建議入場，"
-            + "等待更好的入場點或更大的支撐阻力差距。</div>"
-        ) if _rrr_poor else ""
+        _rrr_str     = trade.get('rrr', '-')
+        _rrr_poor    = trade.get('rrr_poor', False)
+        _too_close   = trade.get('too_close', False)
+        _entry_warn  = trade.get('entry_warning', '')
+        _atr_val     = trade.get('atr', 0)
+        _reward_atr  = trade.get('reward_atr', 0)
+        _any_warn    = _rrr_poor or _too_close or bool(_entry_warn)
+
+        if _entry_warn:
+            _warn_html = (
+                "<div style='background:#fdecea;border-radius:6px;padding:8px 12px;"
+                "font-size:.78rem;color:#c0392b;margin-top:8px;line-height:1.7'>"
+                "⚠️ <b>入場警告</b><br>" + _entry_warn + "</div>"
+            )
+        elif _rrr_poor:
+            _warn_html = (
+                "<div style='background:#fdecea;border-radius:6px;padding:8px 12px;"
+                "font-size:.78rem;color:#c0392b;margin-top:8px'>"
+                "⚠️ 風報比過低（" + _rrr_str + "），當前位置不建議入場，"
+                "等待更好的入場點。</div>"
+            )
+        else:
+            _warn_html = ""
+
         _atr_note = (
             "<div style='font-size:.68rem;color:#9e9890;padding:4px 0 2px'>"
-            + "止損基於 ATR（" + f"{_atr_val:.2f}" + "）計算</div>"
+            "止損基於 ATR（" + f"{_atr_val:.2f}" + "）計算"
+            + (f"　收益空間 {_reward_atr:.1f} ATR" if _reward_atr > 0 else "")
+            + "</div>"
         ) if _atr_val > 0 else ""
+
         st.markdown(
             "<div class='white-card'>"
             + _row("短線方向", trade.get("short_term","-"), _cc(trade.get("short_term","")))
@@ -1972,8 +1990,8 @@ def render_ticker(ctx: dict):
             + _row("關鍵阻力", f"${_kr:.2f}")
             + _row("突破價位", f"${_bp:.2f}")
             + _row("止損位",   f"${_sl:.2f}（ATR）", "bear")
-            + _row("風報比",   _rrr_str, "bear" if _rrr_poor else "")
-            + _atr_note + _rrr_warn + "</div>",
+            + _row("風報比",   _rrr_str, "bear" if _any_warn else "")
+            + _atr_note + _warn_html + "</div>",
             unsafe_allow_html=True
         )
 

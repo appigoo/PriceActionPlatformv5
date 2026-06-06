@@ -72,7 +72,19 @@ def compute_scores(market_struct, volume_analysis, smart_money, signals) -> dict
         dominant_score = max(buy_score, sell_score, 10)
 
     # confidence = 主導方向的得分，上限 95
-    confidence = min(dominant_score, 95)
+    # 風報比過低時降低信心上限
+    trade_setup  = signals.get('trade_setup', {})
+    rrr_poor     = trade_setup.get('rrr_poor', False)
+    atr          = trade_setup.get('atr', 0)
+    # 矛盾型態（多空並存）時也降低信心
+    macro_targets = signals.get('macro_targets', [])
+    macro_biases  = set(t.get('pattern','')[:2] for t in macro_targets)
+    has_conflict  = len(macro_biases) > 1
+
+    conf_cap = 95
+    if rrr_poor:       conf_cap = min(conf_cap, 45)   # 風報比差 → 上限45%
+    if has_conflict:   conf_cap = min(conf_cap, 65)   # 型態矛盾 → 上限65%
+    confidence = min(dominant_score, conf_cap)
 
     return {
         "trend_strength":    trend_strength,

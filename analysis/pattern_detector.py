@@ -414,6 +414,7 @@ def _detect_macro_patterns(df: pd.DataFrame) -> list:
                 patterns.append({
                     "name":"W底型態 📐","bias":"bull","bar":n-1,"category":"macro",
                     "neckline":neck,"target":tgt,
+                    "urgency": 2 if current > neck else 1,   # 已突破=2，待突破=1
                     "desc":f"W底：左低 ${ll:.2f} / 右低 ${rl:.2f}，{st}，突破後目標 ${tgt:.2f}（+{h/current*100:.1f}%）"
                 }); break
 
@@ -431,6 +432,7 @@ def _detect_macro_patterns(df: pd.DataFrame) -> list:
                 patterns.append({
                     "name":"M頂型態 📐","bias":"bear","bar":n-1,"category":"macro",
                     "neckline":neck,"target":tgt,
+                    "urgency": 2 if current < neck else 1,   # 已跌破=2（最緊急），待跌破=1
                     "desc":f"M頂：左高 ${lh:.2f} / 右高 ${rh:.2f}，{st}，目標 ${tgt:.2f}"
                 }); break
 
@@ -447,6 +449,7 @@ def _detect_macro_patterns(df: pd.DataFrame) -> list:
                 patterns.append({
                     "name":"頭肩底 🔔","bias":"bull","bar":n-1,"category":"macro",
                     "neckline":neck,"target":tgt,
+                    "urgency": 2 if current > neck else 1,
                     "desc":f"頭肩底：左肩 ${ls:.2f} / 頭 ${hd:.2f} / 右肩 ${rs:.2f}，{st}，目標 ${tgt:.2f}"
                 }); break
 
@@ -463,6 +466,7 @@ def _detect_macro_patterns(df: pd.DataFrame) -> list:
                 patterns.append({
                     "name":"頭肩頂 🔔","bias":"bear","bar":n-1,"category":"macro",
                     "neckline":neck,"target":tgt,
+                    "urgency": 2 if current < neck else 1,
                     "desc":f"頭肩頂：左肩 ${ls:.2f} / 頭 ${hd:.2f} / 右肩 ${rs:.2f}，{st}，目標 ${tgt:.2f}"
                 }); break
 

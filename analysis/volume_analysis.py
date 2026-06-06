@@ -128,16 +128,22 @@ def analyze_volume(df: pd.DataFrame) -> dict:
         elif price_5_chg < -2 and recent5_ratio > 1.3:
             divergence_desc = f"放量下跌：近5根跌幅{abs(price_5_chg):.1f}%且量能放大，空頭動能強勁"
 
+    # 當日價格漲跌幅（供評分系統使用）
+    price_chg_pct = 0.0
+    if n >= 2 and close[-2] > 0:
+        price_chg_pct = (close[-1] - close[-2]) / close[-2] * 100
+
     return {
         "vol_ratio":      vol_ratio,
         "vol_signal":     vol_signal,
         "interpretation": interpretation,
         "smart_vol":      smart_vol,
-        "vol_bias":       vol_bias,          # 最新5根多空量比
-        "vol_trend_up":   vol_trend_up,      # 最新5根量能是否遞增
-        "recent5_ratio":  recent5_ratio,     # 近5根均量 vs 20日均量
-        "vol_divergence": divergence_desc,   # 量價背離描述
+        "vol_bias":       vol_bias,
+        "vol_trend_up":   vol_trend_up,
+        "recent5_ratio":  recent5_ratio,
+        "vol_divergence": divergence_desc,
         "extra_signal":   extra,
         "avg20":          avg20,
         "volumes":        vol.tolist(),
+        "price_chg_pct":  price_chg_pct,    # 當日漲跌幅（供評分系統使用）
     }

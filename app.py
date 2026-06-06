@@ -1951,15 +1951,31 @@ def render_ticker(ctx: dict):
         _kr = trade.get('key_resistance',0)
         _bp = trade.get('breakout_level',0)
         _sl = trade.get('stop_loss',0)
-        st.markdown(f"""<div class='white-card'>
-          {_row("短線方向", trade.get('short_term','-'),  _cc(trade.get('short_term','')))}
-          {_row("中線方向", trade.get('mid_term','-'),    _cc(trade.get('mid_term','')))}
-          {_row("關鍵支撐", f"${_ks:.2f}")}
-          {_row("關鍵阻力", f"${_kr:.2f}")}
-          {_row("突破價位", f"${_bp:.2f}")}
-          {_row("止損位",   f"${_sl:.2f}", "bear")}
-          {_row("風報比",   trade.get('rrr','-'))}
-        </div>""", unsafe_allow_html=True)
+        _rrr_str  = trade.get('rrr', '-')
+        _rrr_poor = trade.get('rrr_poor', False)
+        _atr_val  = trade.get('atr', 0)
+        _rrr_warn = (
+            "<div style='background:#fdecea;border-radius:6px;padding:6px 10px;"
+            "font-size:.76rem;color:#c0392b;margin-top:6px'>"
+            + "⚠️ 風報比過低（" + _rrr_str + "），當前位置不建議入場，"
+            + "等待更好的入場點或更大的支撐阻力差距。</div>"
+        ) if _rrr_poor else ""
+        _atr_note = (
+            "<div style='font-size:.68rem;color:#9e9890;padding:4px 0 2px'>"
+            + "止損基於 ATR（" + f"{_atr_val:.2f}" + "）計算</div>"
+        ) if _atr_val > 0 else ""
+        st.markdown(
+            "<div class='white-card'>"
+            + _row("短線方向", trade.get("short_term","-"), _cc(trade.get("short_term","")))
+            + _row("中線方向", trade.get("mid_term","-"),   _cc(trade.get("mid_term","")))
+            + _row("關鍵支撐", f"${_ks:.2f}")
+            + _row("關鍵阻力", f"${_kr:.2f}")
+            + _row("突破價位", f"${_bp:.2f}")
+            + _row("止損位",   f"${_sl:.2f}（ATR）", "bear")
+            + _row("風報比",   _rrr_str, "bear" if _rrr_poor else "")
+            + _atr_note + _rrr_warn + "</div>",
+            unsafe_allow_html=True
+        )
 
         # ── 監控按鈕（該股票獨立）────────────────────────────────────────────
         mon = st.session_state.monitors.get(ticker, {})

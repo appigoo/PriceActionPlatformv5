@@ -72,18 +72,25 @@ def compute_scores(market_struct, volume_analysis, smart_money, signals) -> dict
         dominant_score = max(buy_score, sell_score, 10)
 
     # confidence = 主導方向的得分，上限 95
-    # 風報比過低時降低信心上限
-    trade_setup  = signals.get('trade_setup', {})
-    rrr_poor     = trade_setup.get('rrr_poor', False)
-    atr          = trade_setup.get('atr', 0)
-    # 矛盾型態（多空並存）時也降低信心
+    trade_setup   = signals.get('trade_setup', {})
+    rrr_poor      = trade_setup.get('rrr_poor', False)
+    too_close     = trade_setup.get('too_close', False)
+
+    # 矛盾型態（同時有多頭和空頭macro）→ 降低信心
+    # 直接從 patterns 取 macro bias，比從 macro_targets 更可靠
+    macro_pats_all = signals.get('_macro_biases', [])  # injected below
+    # fallback: use macro_targets pattern names
     macro_targets = signals.get('macro_targets', [])
-    macro_biases  = set(t.get('pattern','')[:2] for t in macro_targets)
-    has_conflict  = len(macro_biases) > 1
+    bull_macro_ct = sum(1 for t in macro_targets if any(k in t.get('pattern','')
+                        for k in ['W底','頭肩底','上升']))
+    bear_macro_ct = sum(1 for t in macro_targets if any(k in t.get('pattern','')
+                        for k in ['M頂','頭肩頂','下降']))
+    has_conflict  = bull_macro_ct > 0 and bear_macro_ct > 0
 
     conf_cap = 95
-    if rrr_poor:       conf_cap = min(conf_cap, 45)   # 風報比差 → 上限45%
-    if has_conflict:   conf_cap = min(conf_cap, 65)   # 型態矛盾 → 上限65%
+    if rrr_poor or too_close: conf_cap = min(conf_cap, 45)  # 入場條件差 → 上限45%
+    if has_conflict:           conf_cap = min(conf_cap, 65)  # 型態矛盾 → 上限65%
+    # 兩者同時 → 取最嚴格上限
     confidence = min(dominant_score, conf_cap)
 
     return {

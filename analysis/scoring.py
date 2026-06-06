@@ -10,8 +10,12 @@ def compute_scores(market_struct, volume_analysis, smart_money, signals) -> dict
     accum_score    = smart_money.get('accumulation_prob', 0)
     dist_score     = smart_money.get('distribution_risk', 0)
     vol_ratio      = volume_analysis.get('vol_ratio', 1.0)
+    price_chg_pct  = volume_analysis.get('price_chg_pct', 0.0)   # 當日漲跌幅
 
     struct_break   = market_struct.get('structure_break', '')
+    trend          = market_struct.get('trend', '')
+
+    # ── breakout_score：納入結構突破和當日跌幅 ───────────────────────────────
     if "突破阻力" in struct_break:
         breakout_score = min(50 + int(vol_ratio * 15), 100)
     elif "跌破支撐" in struct_break:
@@ -19,7 +23,24 @@ def compute_scores(market_struct, volume_analysis, smart_money, signals) -> dict
     else:
         breakout_score = 45
 
+    # ── dist_score：大跌幅 + 空頭趨勢 → 出貨風險提高 ────────────────────────
+    if price_chg_pct <= -3.0:
+        dist_score = max(dist_score, 30 + int(abs(price_chg_pct) * 5))
+    if price_chg_pct <= -5.0:
+        dist_score = max(dist_score, 60)
+    if "空頭趨勢" in trend and price_chg_pct < 0:
+        dist_score = max(dist_score, 25)
+    dist_score = min(dist_score, 100)
+
+    # ── fakeout_score：M頂跌破頸線 → 假突破風險高 ────────────────────────────
+    macro_pats = [p.get('name','') for p in signals.get('macro_targets', [])]
+    m_top_broken = any('M頂' in p for p in macro_pats)
     fakeout_score = dist_score
+    if m_top_broken:
+        fakeout_score = max(fakeout_score, 45)
+    if price_chg_pct <= -5.0:
+        fakeout_score = max(fakeout_score, 35)
+    fakeout_score = min(fakeout_score, 100)
 
     # ── 核心：從 signals 取主訊號和分數 ──────────────────────────────────────
     primary    = signals.get('primary', 'NEUTRAL')

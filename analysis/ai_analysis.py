@@ -147,8 +147,18 @@ def generate_ai_analysis(ticker, df, patterns, market_struct, volume_analysis,
         bull_macro = [p for p in macro_pat if p['bias'] == 'bull']
         bear_macro = [p for p in macro_pat if p['bias'] == 'bear']
 
-        # 主導型態：bar_idx 最大（最近偵測到）的優先
-        sorted_macro = sorted(macro_pat, key=lambda p: p.get('bar_idx', 0), reverse=True)
+        # 主導型態優先順序：
+        # 1. urgency=2（已突破/跌破頸線）優先於 urgency=1（待確認）
+        # 2. 同 urgency 內，與近期 K 線方向一致的優先
+        # 這樣「M頂已跌破頸線」會優先於「W底待突破」
+        recent_bias = "bear" if any(p['bias']=='bear' for p in
+                      (patterns.get('single_k',[]) + patterns.get('double_k',[]))) else "bull"
+        def _macro_sort_key(p):
+            urgency  = p.get('urgency', 1)
+            bias_match = 1 if p['bias'] == recent_bias else 0
+            return (urgency, bias_match)
+
+        sorted_macro = sorted(macro_pat, key=_macro_sort_key, reverse=True)
         dominant     = sorted_macro[0]
         dom_color    = "#3d8c5f" if dominant['bias']=='bull' else "#c0392b"
         dom_dir      = "多頭" if dominant['bias']=='bull' else "空頭"

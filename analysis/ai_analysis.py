@@ -227,19 +227,38 @@ def generate_ai_analysis(ticker, df, patterns, market_struct, volume_analysis,
         blocks.append(_prose("支撐與阻力", sr_txt))
 
     # ══════════════════════════════════════════════════════════════════════════
-    # 9. 型態目標位
+    # 9. 型態目標位（主導型態突出顯示）
     # ══════════════════════════════════════════════════════════════════════════
     macro_targets = signals.get('macro_targets', [])
     if macro_targets:
+        # 找出與主導型態對應的目標（urgency最高的）
+        dominant_pat_name = sorted_macro[0]['name'].split()[0] if macro_pat and 'sorted_macro' in dir() else ""
         items = []
         for mt in macro_targets:
-            pct = abs(mt['target'] - current) / current * 100
-            items.append(
-                f"<span style='color:#b07d2e;font-weight:700'>{mt['pattern'].split()[0]}</span>"
-                f" 頸線 <b>${mt['neckline']:.2f}</b> → 目標 <b>${mt['target']:.2f}</b>"
-                f"（潛在空間 {pct:.1f}%）"
-            )
-        blocks.append(_section("型態目標位", "", items, "#b07d2e"))
+            pct      = abs(mt['target'] - current) / current * 100
+            pat_name = mt['pattern'].split()[0]
+            is_dom   = (pat_name in dominant_pat_name or dominant_pat_name in pat_name)
+            # 判斷目標方向（多/空）
+            is_bull_target = mt['target'] > current
+            t_color  = "#3d8c5f" if is_bull_target else "#c0392b"
+            if is_dom:
+                items.append(
+                    f"<div style='background:#fff3e0;border-radius:5px;padding:5px 8px;margin:3px 0'>"
+                    f"<span style='background:#b07d2e;color:#fff;border-radius:3px;"
+                    f"padding:1px 6px;font-size:.68rem;margin-right:6px'>主導</span>"
+                    f"<span style='color:{t_color};font-weight:700'>{pat_name}</span>"
+                    f" 頸線 <b>${mt['neckline']:.2f}</b> → 目標 <b>${mt['target']:.2f}</b>"
+                    f"（潛在空間 {pct:.1f}%）</div>"
+                )
+            else:
+                items.append(
+                    f"<span style='color:#b8b2aa;font-size:.7rem;margin-right:4px'>參考</span>"
+                    f"<span style='color:#9e9890;font-weight:600'>{pat_name}</span>"
+                    f"<span style='color:#b8b2aa'>"
+                    f" 頸線 ${mt['neckline']:.2f} → 目標 ${mt['target']:.2f}"
+                    f"（{pct:.1f}%）</span>"
+                )
+        blocks.append(_section("型態目標位", "主導型態目標優先", items, "#b07d2e"))
 
     # ══════════════════════════════════════════════════════════════════════════
     # 10. 綜合結論

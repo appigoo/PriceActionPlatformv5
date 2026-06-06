@@ -166,29 +166,50 @@ def generate_signals(df, patterns, market_struct, volume_analysis, sr_levels) ->
     key_resistance = res_candidates[0] if res_candidates else current * 1.03
     breakout_level = key_resistance
 
-    # 極端情況兜底
-    if key_support >= current:   key_support    = current * 0.97
+    if key_support >= current:    key_support    = current * 0.97
     if key_resistance <= current: key_resistance = current * 1.03
 
+    # ── ATR 計算（最近14根）────────────────────────────────────────────────
+    atr_period = min(14, n - 1)
+    tr_list = []
+    for k in range(n - atr_period, n):
+        tr = max(
+            highs[k] - lows[k],
+            abs(highs[k] - closes[k-1]),
+            abs(lows[k]  - closes[k-1])
+        )
+        tr_list.append(tr)
+    atr = float(np.mean(tr_list)) if tr_list else current * 0.02
+
     if primary == "BUY":
-        stop_loss = key_support * 0.983
-        target    = key_resistance
-        risk      = max(current - stop_loss, 0.01)
-        reward    = max(target - current, 0.01)
-        short_dir = "看多 📈"
+        # 止損：支撐下方 1ATR（不超過支撐 3%）
+        sl_from_sup = key_support - atr
+        sl_from_pct = current * 0.97
+        stop_loss   = max(sl_from_sup, sl_from_pct)   # 取較寬的（不過緊）
+        target      = key_resistance
+        risk        = max(current - stop_loss, 0.01)
+        reward      = max(target  - current,  0.01)
+        short_dir   = "看多 📈"
     elif primary == "SELL":
-        stop_loss = key_resistance * 1.017
-        target    = key_support
-        risk      = max(stop_loss - current, 0.01)
-        reward    = max(current - target, 0.01)
-        short_dir = "看空 📉"
+        # 止損：阻力上方 1ATR（不超過阻力 3%）
+        sl_from_res = key_resistance + atr
+        sl_from_pct = current * 1.03
+        stop_loss   = min(sl_from_res, sl_from_pct)   # 取較窄的（不過寬）
+        target      = key_support
+        risk        = max(stop_loss - current, 0.01)
+        reward      = max(current   - target,  0.01)
+        short_dir   = "看空 📉"
     else:
-        stop_loss = current * 0.97
-        target    = current * 1.03
+        stop_loss = current - atr
+        target    = current + atr
         risk      = current - stop_loss
-        reward    = target - current
+        reward    = target  - current
         short_dir = "觀望 ⟷"
-    rrr = f"1 : {reward/risk:.1f}" if risk > 0 else "N/A"
+
+    reward_risk_ratio = reward / risk if risk > 0 else 0
+    rrr = f"1 : {reward_risk_ratio:.1f}" if risk > 0 else "N/A"
+    # 風報比警告旗標
+    rrr_poor = reward_risk_ratio < 1.0
 
     macro_trend = market_struct.get('trend', '橫盤')
     mid_dir = ("多頭 ▲" if "多頭" in macro_trend
@@ -224,6 +245,8 @@ def generate_signals(df, patterns, market_struct, volume_analysis, sr_levels) ->
             "breakout_level":   breakout_level,
             "stop_loss":        stop_loss,
             "rrr":              rrr,
+            "rrr_poor":         rrr_poor,
+            "atr":              atr,
         },
         "signal_history": signal_history,
     }

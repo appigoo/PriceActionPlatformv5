@@ -129,28 +129,49 @@ def build_chart(df, ticker, interval, sr_levels, signals, market_struct, pattern
         ), row=1, col=1)
 
     # ── BUY / SELL SIGNAL ARROWS ──────────────────────────────────────────────
-    primary = signals.get('primary', 'NEUTRAL')
+    primary    = signals.get('primary', 'NEUTRAL')
+    sig_date   = str(dates[-1])[:10]      # 訊號日期（顯示在 tooltip）
+    sig_close  = float(closes[-1])
+    sig_label_buy  = f"▲ BUY\n{sig_date}\n${sig_close:.2f}"
+    sig_label_sell = f"▼ SELL\n{sig_date}\n${sig_close:.2f}"
+
     if primary == 'BUY':
+        y_buy = float(lows[-1]) * 0.990
         fig.add_trace(go.Scatter(
-            x=[dates[-1]], y=[lows[-1] * 0.994],
+            x=[dates[-1]], y=[y_buy],
             mode='markers+text',
             marker=dict(symbol='triangle-up', color=BULL_CANDLE, size=18,
                         line=dict(width=1.5, color='#2a6b48')),
-            text=["▲ BUY"],
+            text=[sig_label_buy],
             textposition="bottom center",
-            textfont=dict(color=BULL_CANDLE, size=10, family="IBM Plex Mono"),
+            textfont=dict(color=BULL_CANDLE, size=9, family="IBM Plex Mono"),
             name='BUY Signal',
+            customdata=[[sig_date, sig_close]],
+            hovertemplate=(
+                "<b>BUY 訊號</b><br>"
+                "日期：%{customdata[0]}<br>"
+                "收盤：$%{customdata[1]:.2f}<br>"
+                "<extra></extra>"
+            ),
         ), row=1, col=1)
     elif primary == 'SELL':
+        y_sell = float(highs[-1]) * 1.010
         fig.add_trace(go.Scatter(
-            x=[dates[-1]], y=[highs[-1] * 1.006],
+            x=[dates[-1]], y=[y_sell],
             mode='markers+text',
             marker=dict(symbol='triangle-down', color=BEAR_CANDLE, size=18,
                         line=dict(width=1.5, color='#8b1a10')),
-            text=["▼ SELL"],
+            text=[sig_label_sell],
             textposition="top center",
-            textfont=dict(color=BEAR_CANDLE, size=10, family="IBM Plex Mono"),
+            textfont=dict(color=BEAR_CANDLE, size=9, family="IBM Plex Mono"),
             name='SELL Signal',
+            customdata=[[sig_date, sig_close]],
+            hovertemplate=(
+                "<b>SELL 訊號</b><br>"
+                "日期：%{customdata[0]}<br>"
+                "收盤：$%{customdata[1]:.2f}<br>"
+                "<extra></extra>"
+            ),
         ), row=1, col=1)
 
     # ── VOLUME BARS ───────────────────────────────────────────────────────────

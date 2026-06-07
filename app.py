@@ -1830,6 +1830,148 @@ def _render_volatility_spike(df, ticker: str, interval: str,
         st.plotly_chart(fig_after, use_container_width=True,
                         config={"displaylogo": False, "scrollZoom": False})
 
+        # ── 歷史推測 ──────────────────────────────────────────────────────────
+        st.markdown("<div class='section-heading' style='font-size:.85rem'>🔮 基於歷史數據的後市推測</div>",
+                    unsafe_allow_html=True)
+
+        # 分析最新觸發事件
+        latest = triggered_hist[-1] if triggered_hist else None
+        if latest and avg_price_plot and len(avg_price_plot) >= 4:
+            lat_close  = latest['close']
+            lat_chg    = latest.get('price_chg', 0)
+            lat_chg_pct= lat_chg / (lat_close - lat_chg) * 100 if (lat_close - lat_chg) > 0 else 0
+            lat_p_r    = latest['price_ratio']
+            lat_v_r    = latest['vol_ratio']
+            lat_date   = str(latest['date'])[:10]
+
+            # 找最相似的歷史事件（同方向 + 跌幅最接近）
+            is_latest_down = lat_chg < 0
+            similar = [b for b in triggered_hist[:-1]
+                       if (b.get('price_chg', 0) < 0) == is_latest_down]
+            # 按漲跌幅絕對值差排序
+            lat_abs = abs(lat_chg_pct)
+            similar.sort(key=lambda b: abs(
+                abs(b.get('price_chg',0) / max(b['close']-b.get('price_chg',0), 1) * 100) - lat_abs
+            ))
+            top3 = similar[:3]
+
+            # 平均後市走勢統計
+            p1 = avg_price_plot[1] if len(avg_price_plot) > 1 else 0
+            p3 = avg_price_plot[3] if len(avg_price_plot) > 3 else 0
+            p5 = avg_price_plot[5] if len(avg_price_plot) > 5 else (avg_price_plot[-1] if avg_price_plot else 0)
+
+            # 判斷後市傾向
+            n_positive_5 = sum(1 for b in triggered_hist[:-1]
+                               if len(b.get('future_closes',[])) >= 5
+                               and b['future_closes'][4] > b['close'])
+            n_total_5    = sum(1 for b in triggered_hist[:-1]
+                               if len(b.get('future_closes',[])) >= 5)
+            up_rate_5    = n_positive_5 / n_total_5 * 100 if n_total_5 > 0 else 50
+
+            # 生成推測文字
+            direction_5  = "上漲" if p5 > 0 else "下跌"
+            d_color_5    = "#3d8c5f" if p5 > 0 else "#c0392b"
+            conf_level   = (
+                "較高（>65%）" if up_rate_5 > 65 or up_rate_5 < 35
+                else "中等（45-65%）" if 45 <= up_rate_5 <= 65
+                else "偏低（<45%）"
+            )
+
+            # 相似事件文字
+            similar_html = ""
+            for b in top3:
+                b_date = str(b['date'])[:10]
+                b_chg_pct = b.get('price_chg', 0) / max(b['close']-b.get('price_chg',0),1) * 100
+                fc = b.get('future_closes', [])
+                b_p5 = (fc[4] - b['close']) / b['close'] * 100 if len(fc) >= 5 else None
+                b_p5_str = f"+{b_p5:.1f}%" if b_p5 and b_p5 >= 0 else (f"{b_p5:.1f}%" if b_p5 else "—")
+                b_p5_col = "#3d8c5f" if b_p5 and b_p5 >= 0 else "#c0392b"
+                similar_html += (
+                    f"<div style='display:flex;justify-content:space-between;"
+                    f"padding:4px 0;border-bottom:1px solid #f0ede8;font-size:.78rem'>"
+                    f"<span style='color:#9e9890'>{b_date}</span>"
+                    f"<span style='color:{'#c0392b' if b_chg_pct < 0 else '#3d8c5f'};"
+                    f"font-family:IBM Plex Mono,monospace'>{b_chg_pct:+.1f}%</span>"
+                    f"<span style='color:#9e9890'>→ 5根後</span>"
+                    f"<span style='color:{b_p5_col};font-family:IBM Plex Mono,monospace'>{b_p5_str}</span>"
+                    f"</div>"
+                )
+
+            # 目標價位（預先計算所有變數，避免 f-string 內三元表達式衝突）
+            target_1   = lat_close * (1 + p1/100)
+            target_3   = lat_close * (1 + p3/100)
+            target_5   = lat_close * (1 + p5/100)
+            n_warn     = f"（樣本數 {n_total_5} 次，{'統計意義有限' if n_total_5 < 10 else '具參考價值'}）" if n_total_5 > 0 else ""
+            chg_col    = "#c0392b" if lat_chg < 0 else "#3d8c5f"
+            p1_col     = "#3d8c5f" if p1 >= 0 else "#c0392b"
+            p3_col     = "#3d8c5f" if p3 >= 0 else "#c0392b"
+            up_col     = "#3d8c5f" if up_rate_5 > 50 else "#c0392b"
+            conc_bg    = "#eaf4ee" if p5 >= 0 else "#fdecea"
+            conc_col   = "#2d6a4f" if p5 >= 0 else "#922b21"
+
+            similar_sec = ""
+            if similar_html:
+                similar_sec = (
+                    "<div style='margin-bottom:.8rem'>"
+                    "<div style='font-size:.72rem;color:#9e9890;margin-bottom:.4rem'>"
+                    "🔍 最相似歷史事件（同方向、漲跌幅最接近）</div>"
+                    + similar_html + "</div>"
+                )
+
+            st.markdown(
+                "<div style='background:#f9f7f4;border:1px solid #e0dbd2;"
+                "border-radius:8px;padding:1.1rem 1.3rem;font-family:Noto Sans TC,sans-serif'>"
+
+                # 最新觸發摘要
+                f"<div style='font-size:.8rem;color:#6b6560;margin-bottom:.8rem'>"
+                f"最新觸發：<b style='color:#1a1a1a'>{lat_date}</b>　"
+                f"收盤 <b>${lat_close:.2f}</b>　"
+                f"漲跌 <b style='color:{chg_col}'>{lat_chg_pct:+.1f}%</b>　"
+                f"價格倍數 <b style='color:#c0392b'>{lat_p_r:.2f}x</b>　"
+                f"量倍數 <b style='color:#c0392b'>{lat_v_r:.2f}x</b></div>"
+
+                # 均值推測卡
+                f"<div style='background:#fff;border:1px solid #e8e3dc;border-radius:6px;"
+                f"padding:.7rem 1rem;margin-bottom:.8rem'>"
+                f"<div style='font-size:.72rem;color:#9e9890;margin-bottom:.5rem'>📊 歷史均值推測 {n_warn}</div>"
+                f"<div style='display:flex;gap:1.5rem;flex-wrap:wrap'>"
+                f"<div style='text-align:center'>"
+                f"<div style='font-size:.68rem;color:#9e9890'>第1根均值</div>"
+                f"<div style='font-size:1.1rem;font-weight:700;color:{p1_col};"
+                f"font-family:IBM Plex Mono,monospace'>{p1:+.2f}%</div>"
+                f"<div style='font-size:.68rem;color:#9e9890'>${target_1:.2f}</div></div>"
+                f"<div style='text-align:center'>"
+                f"<div style='font-size:.68rem;color:#9e9890'>第3根均值</div>"
+                f"<div style='font-size:1.1rem;font-weight:700;color:{p3_col};"
+                f"font-family:IBM Plex Mono,monospace'>{p3:+.2f}%</div>"
+                f"<div style='font-size:.68rem;color:#9e9890'>${target_3:.2f}</div></div>"
+                f"<div style='text-align:center'>"
+                f"<div style='font-size:.68rem;color:#9e9890'>第5根均值</div>"
+                f"<div style='font-size:1.1rem;font-weight:700;color:{d_color_5};"
+                f"font-family:IBM Plex Mono,monospace'>{p5:+.2f}%</div>"
+                f"<div style='font-size:.68rem;color:#9e9890'>${target_5:.2f}</div></div>"
+                f"<div style='text-align:center'>"
+                f"<div style='font-size:.68rem;color:#9e9890'>5根後上漲概率</div>"
+                f"<div style='font-size:1.1rem;font-weight:700;color:{up_col}'>{up_rate_5:.0f}%</div>"
+                f"<div style='font-size:.68rem;color:#9e9890'>信心：{conf_level}</div></div>"
+                f"</div></div>"
+
+                + similar_sec
+
+                # 推測結論
+                + f"<div style='background:{conc_bg};border-radius:6px;padding:.6rem .9rem;"
+                f"font-size:.82rem;color:{conc_col};border-left:3px solid {d_color_5}'>"
+                f"<b>📌 推測結論：</b>"
+                f"基於 {n_total_5} 次歷史同類事件，觸發後第5根收盤平均"
+                f"<b>{direction_5} {abs(p5):.2f}%</b>"
+                f"，目標價約 <b>${target_5:.2f}</b>。"
+                f"5根後上漲概率 <b>{up_rate_5:.0f}%</b>（{conf_level}）。"
+                "<br><span style='font-size:.73rem;opacity:.8'>"
+                "⚠️ 歷史統計僅供參考，不構成交易建議。</span></div>"
+                "</div>",
+                unsafe_allow_html=True
+            )
+
     # ── Telegram 警報（任何一根觸發即發）────────────────────────────────────
     if tg_enabled and trig_two:
         from analysis.volatility_spike import build_spike_tg_msg

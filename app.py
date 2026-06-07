@@ -1092,7 +1092,20 @@ def _render_gap_history(df, ticker: str, interval: str):
         key=f"gap_min_atr_{ticker}",
         help="0 = 不過濾；0.3 = 缺口需 ≥ 0.3 ATR（建議日線用 0.3，分鐘線用 0.1）"
     )
-    gaps  = scan_gaps(df, min_gap_atr_ratio=min_gap_ratio)
+    try:
+        gaps = scan_gaps(df, min_gap_atr_ratio=min_gap_ratio)
+    except TypeError:
+        # 兼容舊版 gap_analysis.py（未更新 GitHub 時的 fallback）
+        gaps = scan_gaps(df)
+        if min_gap_ratio > 0:
+            # 手動過濾：計算 ATR 再過濾
+            import numpy as _np
+            _h = df['High'].values; _l = df['Low'].values; _c = df['Close'].values
+            _tr = [max(_h[i]-_l[i], abs(_h[i]-_c[i-1]), abs(_l[i]-_c[i-1]))
+                   for i in range(1, len(df))]
+            _atr = float(_np.mean(_tr[-14:])) if _tr else 0
+            _min_pct = (_atr / float(_c[-1]) * 100) * min_gap_ratio if _atr > 0 else 0
+            gaps = [g for g in gaps if g['gap_size'] >= _min_pct]
     stats = analyze_gap_stats(gaps, df)
 
     up_gaps   = stats['up_gaps']
@@ -1101,17 +1114,19 @@ def _render_gap_history(df, ticker: str, interval: str):
 
     # ── 統計摘要卡片 ──────────────────────────────────────────────────────────
     sc1, sc2, sc3, sc4 = st.columns(4)
+    _up_warn  = " ⚠️" if len(up_gaps)  < 10 else ""
+    _dn_warn  = " ⚠️" if len(down_gaps) < 10 else ""
     with sc1:
         st.markdown(f"""<div class='metric-card' style='text-align:center;border-left:3px solid #3d8c5f'>
           <div class='metric-label'>向上跳空次數</div>
-          <div class='metric-value' style='color:#3d8c5f;font-size:1.6rem'>{len(up_gaps)}</div>
-          <div class='metric-sub' style='color:#9e9890'>Gap Up ↑</div>
+          <div class='metric-value' style='color:#3d8c5f;font-size:1.6rem'>{len(up_gaps)}{_up_warn}</div>
+          <div class='metric-sub' style='color:#9e9890'>Gap Up ↑{"　樣本數不足" if len(up_gaps) < 10 else ""}</div>
         </div>""", unsafe_allow_html=True)
     with sc2:
         st.markdown(f"""<div class='metric-card' style='text-align:center;border-left:3px solid #c0392b'>
           <div class='metric-label'>向下跳空次數</div>
-          <div class='metric-value' style='color:#c0392b;font-size:1.6rem'>{len(down_gaps)}</div>
-          <div class='metric-sub' style='color:#9e9890'>Gap Down ↓</div>
+          <div class='metric-value' style='color:#c0392b;font-size:1.6rem'>{len(down_gaps)}{_dn_warn}</div>
+          <div class='metric-sub' style='color:#9e9890'>Gap Down ↓{"　樣本數不足" if len(down_gaps) < 10 else ""}</div>
         </div>""", unsafe_allow_html=True)
     with sc3:
         up_fill = stats['up']['fill_rate'] if stats['up']['count'] > 0 else 0
@@ -1129,6 +1144,16 @@ def _render_gap_history(df, ticker: str, interval: str):
           <div class='metric-value' style='color:#b07d2e;font-size:1.6rem'>{total}</div>
           <div class='metric-sub' style='color:#9e9890'>{interval} 週期</div>
         </div>""", unsafe_allow_html=True)
+
+    # 樣本數不足全局警告
+    if len(up_gaps) < 10 or len(down_gaps) < 10:
+        warn_parts = []
+        if len(up_gaps) < 10:   warn_parts.append(f"向上跳空僅 {len(up_gaps)} 次")
+        if len(down_gaps) < 10: warn_parts.append(f"向下跳空僅 {len(down_gaps)} 次")
+        st.warning(
+            f"⚠️ 樣本數不足（{'、'.join(warn_parts)}），統計結論可靠性有限。"
+            f"建議加載更多歷史數據（增加 K線數量）或降低過濾閾值以獲得更多樣本。"
+        )
 
     if total == 0:
         filter_note = f"（最小缺口過濾：{min_gap_ratio:.1f} ATR）" if min_gap_ratio > 0 else ""
@@ -1291,7 +1316,7 @@ def _render_gap_history(df, ticker: str, interval: str):
                 f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
                 f"${g['cur_close']:.2f}</td>"
                 f"<td style='padding:6px 10px;color:{color};font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
-                f"+{g['gap_size']:.2f}%</td>"
+                f"{g.get('gap_size_signed', g['gap_size'] if g['direction']=='up' else -g['gap_size']):+.2f}%</td>"
                 f"<td style='padding:6px 10px;color:{('#3d8c5f' if g['close_chg']>=0 else '#c0392b')};"
                 f"font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
                 f"{g['close_chg']:+.2f}%</td>"

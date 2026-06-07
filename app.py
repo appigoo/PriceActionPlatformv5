@@ -1085,7 +1085,14 @@ def _render_gap_history(df, ticker: str, interval: str):
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
-    gaps  = scan_gaps(df)
+    # 最小缺口過濾（ATR 倍數）
+    min_gap_ratio = st.slider(
+        "最小缺口過濾（ATR 倍數）",
+        min_value=0.0, max_value=1.0, value=0.3, step=0.05,
+        key=f"gap_min_atr_{ticker}",
+        help="0 = 不過濾；0.3 = 缺口需 ≥ 0.3 ATR（建議日線用 0.3，分鐘線用 0.1）"
+    )
+    gaps  = scan_gaps(df, min_gap_atr_ratio=min_gap_ratio)
     stats = analyze_gap_stats(gaps, df)
 
     up_gaps   = stats['up_gaps']
@@ -1124,7 +1131,8 @@ def _render_gap_history(df, ticker: str, interval: str):
         </div>""", unsafe_allow_html=True)
 
     if total == 0:
-        st.info("當前時間週期內未偵測到符合定義的跳空缺口（今低 > 前高 / 今高 < 前低）")
+        filter_note = f"（最小缺口過濾：{min_gap_ratio:.1f} ATR）" if min_gap_ratio > 0 else ""
+        st.info(f"當前時間週期內未偵測到有效跳空缺口{filter_note}，可嘗試降低過濾閾值")
         return
 
     st.markdown("")
@@ -1726,7 +1734,7 @@ def _detect_gaps_two_bars(ticker: str, interval: str, bar_count: int) -> list[di
 
         # 計算歷史統計（供 Telegram 附上回補率）
         try:
-            all_gaps = scan_gaps(df)
+            all_gaps = scan_gaps(df, min_gap_atr_ratio=0.3)
             stats    = analyze_gap_stats(all_gaps, df)
         except Exception:
             stats = None

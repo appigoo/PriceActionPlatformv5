@@ -1661,76 +1661,174 @@ def _render_volatility_spike(df, ticker: str, interval: str,
         st.markdown("")
 
         # ── 詳細表格（Fix1：漲跌幅加方向；Fix3：日期截到10位）────────────────
+        def _spark_cells(values, fmt_fn, positive_good=True):
+            """生成後5根的彩色文字序列 HTML"""
+            if not values:
+                return "<span style='color:#b8b2aa'>—</span>"
+            parts = []
+            for v in values:
+                color = ("#3d8c5f" if v >= 0 else "#c0392b") if positive_good else (
+                        "#c0392b" if v >= 0 else "#3d8c5f")
+                parts.append(
+                    f"<span style='color:{color};font-size:.68rem;"
+                    f"font-family:IBM Plex Mono,monospace'>{fmt_fn(v)}</span>"
+                )
+            return "<span style='color:#d0cbc5;font-size:.65rem'> │ </span>".join(parts)
+
         trig_rows = ""
         for b in reversed(triggered_hist):
-            # Fix3：日線只顯示日期，分鐘線顯示時間
-            date_str  = str(b['date'])[:10]        # 只取 YYYY-MM-DD
+            date_str  = str(b['date'])[:10]
             p_r       = b['price_ratio']
             v_r       = b['vol_ratio']
-            p_abs     = b['price_abs']             # 絕對值（永遠正）
+            p_abs     = b['price_abs']
             v_abs     = b['vol_abs']
             close_v   = b['close']
-            prev_close = b.get('prev_close', 0)    # 需要從 bars 取 prev_close
-
-            # Fix1：計算真實漲跌方向（close vs prev_close）
-            # price_abs 是絕對值，需用 close_chg 還原方向
-            close_chg  = b.get('price_chg', 0)     # price_chg = close - prev_close
-            if prev_close and prev_close > 0:
-                actual_pct = close_chg / (close_v - close_chg) * 100 if close_v - close_chg > 0 else 0
-            else:
-                actual_pct = 0
-            # 用 price_chg 直接判斷方向，price_abs 是幅度
+            close_chg = b.get('price_chg', 0)
             is_up     = close_chg >= 0
-            chg_color = "#3d8c5f" if is_up else "#c0392b"
-            chg_sign  = "+" if is_up else ""
-            chg_display = f"{chg_sign}{p_abs:.2f}%" if is_up else f"-{p_abs:.2f}%"
+            chg_color   = "#3d8c5f" if is_up else "#c0392b"
+            chg_display = f"+{p_abs:.2f}%" if is_up else f"-{p_abs:.2f}%"
+
+            # 後5根走勢（方案B）
+            fc = b.get('future_closes', [])
+            fv = b.get('future_vols',   [])
+            # 價格：相對觸發當根收盤的漲跌幅
+            fc_pcts = [(c - close_v) / close_v * 100 for c in fc] if fc else []
+            # 成交量：相對觸發當根成交量的倍數
+            base_vol = b.get('vol', 1) or 1
+            fv_ratios = [v / base_vol for v in fv] if fv else []
+
+            price_spark = _spark_cells(fc_pcts,   lambda v: f"{v:+.1f}%", positive_good=True)
+            vol_spark   = _spark_cells(fv_ratios, lambda v: f"{v:.1f}x",  positive_good=True)
 
             # 強度評級
-            both_max  = max(p_r, v_r)
+            both_max = max(p_r, v_r)
             if both_max >= y_val * 3:
-                grade = "🔴 極強"
-                gbg   = "#fdecea"
+                grade, gbg = "🔴 極強", "#fdecea"
             elif both_max >= y_val * 2:
-                grade = "🟠 強"
-                gbg   = "#fff3e0"
+                grade, gbg = "🟠 強",   "#fff3e0"
             else:
-                grade = "🟡 中"
-                gbg   = "#fffde7"
+                grade, gbg = "🟡 中",   "#fffde7"
 
             trig_rows += (
                 f"<tr style='background:{gbg}'>"
                 f"<td style='padding:6px 10px;font-size:.78rem;color:#6b6560'>{date_str}</td>"
-                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
-                f"${close_v:.2f}</td>"
-                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;"
-                f"font-size:.78rem;color:{chg_color}'>"
-                f"{chg_display}</td>"
-                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.82rem;"
-                f"font-weight:700;color:#c0392b'>{p_r:.2f}x</td>"
-                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
-                f"+{v_abs:.2f}%</td>"
-                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.82rem;"
-                f"font-weight:700;color:#c0392b'>{v_r:.2f}x</td>"
+                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem'>${close_v:.2f}</td>"
+                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem;color:{chg_color}'>{chg_display}</td>"
+                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.82rem;font-weight:700;color:#c0392b'>{p_r:.2f}x</td>"
+                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem'>+{v_abs:.2f}%</td>"
+                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.82rem;font-weight:700;color:#c0392b'>{v_r:.2f}x</td>"
                 f"<td style='padding:6px 10px;font-size:.76rem'>{grade}</td>"
+                f"<td style='padding:6px 12px;min-width:200px'>{price_spark}</td>"
+                f"<td style='padding:6px 12px;min-width:200px'>{vol_spark}</td>"
                 f"</tr>"
             )
 
         st.markdown(
-            f"<div style='border:1px solid #e0dbd2;border-radius:8px;overflow:auto;max-height:380px'>"
+            f"<div style='border:1px solid #e0dbd2;border-radius:8px;overflow:auto;max-height:420px'>"
             f"<table style='width:100%;border-collapse:collapse'>"
             f"<thead><tr style='background:#fdecea;border-bottom:1.5px solid #f5b8b3;position:sticky;top:0'>"
             f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>時間</th>"
             f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>收盤價</th>"
-            f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>價格漲跌幅</th>"
+            f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>漲跌幅</th>"
             f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#c0392b'>價格倍數</th>"
-            f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>成交量增幅</th>"
-            f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#c0392b'>成交量倍數</th>"
+            f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>量增幅</th>"
+            f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#c0392b'>量倍數</th>"
             f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#9e9890'>強度</th>"
+            f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#4a7c6f'>後5根價格</th>"
+            f"<th style='padding:7px 10px;text-align:left;font-size:.71rem;color:#5b8fd4'>後5根量比</th>"
             f"</tr></thead>"
             f"<tbody>{trig_rows}</tbody>"
             f"</table></div>",
             unsafe_allow_html=True
         )
+        st.caption("後5根價格：各根收盤相對觸發當根收盤的漲跌幅　後5根量比：各根成交量相對觸發當根成交量的倍數")
+
+        # ── 方案A：平均後市走勢圖 ────────────────────────────────────────────
+        import plotly.graph_objects as go
+
+        # 收集所有觸發事件的後5根數據
+        all_price_pcts  = [[], [], [], [], []]   # [根1列表, 根2列表, ...]
+        all_vol_ratios  = [[], [], [], [], []]
+
+        for b in triggered_hist:
+            fc     = b.get('future_closes', [])
+            fv     = b.get('future_vols',   [])
+            c0     = b['close']
+            v0     = b.get('vol', 1) or 1
+            for j in range(min(5, len(fc))):
+                all_price_pcts[j].append((fc[j] - c0) / c0 * 100)
+            for j in range(min(5, len(fv))):
+                all_vol_ratios[j].append(fv[j] / v0)
+
+        avg_price = [float(np.mean(lst)) if lst else None for lst in all_price_pcts]
+        avg_vol   = [float(np.mean(lst)) if lst else None for lst in all_vol_ratios]
+        x_labels  = ["觸發", "+1根", "+2根", "+3根", "+4根", "+5根"]
+
+        # 加入觸發點（0,0）
+        avg_price_plot = [0.0] + [v for v in avg_price if v is not None]
+        avg_vol_plot   = [1.0] + [v for v in avg_vol   if v is not None]
+        x_plot = x_labels[:len(avg_price_plot)]
+
+        fig_after = go.Figure()
+
+        # 價格走勢（左軸）
+        price_colors = ["#3d8c5f" if v >= 0 else "#c0392b" for v in avg_price_plot]
+        fig_after.add_trace(go.Scatter(
+            x=x_plot, y=avg_price_plot,
+            mode='lines+markers+text',
+            name='平均價格漲跌',
+            line=dict(color='#4a7c6f', width=2.5),
+            marker=dict(size=10, color=price_colors,
+                        line=dict(width=1.5, color='white')),
+            text=[f"{v:+.2f}%" for v in avg_price_plot],
+            textposition='top center',
+            textfont=dict(size=9, color='#4a7c6f', family='IBM Plex Mono'),
+            yaxis='y1',
+        ))
+
+        # 成交量走勢（右軸）
+        fig_after.add_trace(go.Scatter(
+            x=x_plot, y=avg_vol_plot,
+            mode='lines+markers+text',
+            name='平均量比',
+            line=dict(color='#5b8fd4', width=2, dash='dot'),
+            marker=dict(size=8, color='#5b8fd4',
+                        line=dict(width=1.5, color='white')),
+            text=[f"{v:.2f}x" for v in avg_vol_plot],
+            textposition='bottom center',
+            textfont=dict(size=9, color='#5b8fd4', family='IBM Plex Mono'),
+            yaxis='y2',
+        ))
+
+        # 零線
+        fig_after.add_hline(y=0, line=dict(color='#e0dbd2', width=1, dash='dash'), yref='y1')
+        fig_after.add_hline(y=1, line=dict(color='#bbd4f0', width=1, dash='dash'), yref='y2')
+
+        fig_after.update_layout(
+            title=dict(
+                text=f"觸發後平均走勢（共 {len(triggered_hist)} 次樣本）",
+                font=dict(size=12, color='#6b6560'), x=0.01
+            ),
+            plot_bgcolor='#ffffff', paper_bgcolor='#f9f7f4',
+            height=300,
+            margin=dict(l=55, r=55, t=42, b=30),
+            font=dict(family='IBM Plex Mono', color='#6b6560', size=9),
+            legend=dict(orientation='h', x=0.5, xanchor='center', y=1.12,
+                        bgcolor='rgba(255,255,255,.8)', bordercolor='#ede9e3',
+                        borderwidth=1, font=dict(size=9)),
+            yaxis=dict(title='價格漲跌幅 (%)', gridcolor='#ede9e3',
+                       tickfont=dict(size=8), ticksuffix='%',
+                       zeroline=True, zerolinecolor='#e0dbd2'),
+            yaxis2=dict(title='成交量倍數 (x)', overlaying='y', side='right',
+                        gridcolor='#dceaf8', tickfont=dict(size=8),
+                        ticksuffix='x', showgrid=False),
+            hovermode='x unified',
+        )
+
+        st.markdown("<div class='section-heading' style='font-size:.85rem'>📊 觸發後平均走勢（方案A）</div>",
+                    unsafe_allow_html=True)
+        st.plotly_chart(fig_after, use_container_width=True,
+                        config={"displaylogo": False, "scrollZoom": False})
 
     # ── Telegram 警報（任何一根觸發即發）────────────────────────────────────
     if tg_enabled and trig_two:

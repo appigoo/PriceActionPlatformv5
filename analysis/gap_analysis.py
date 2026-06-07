@@ -1,3 +1,4 @@
+
 """
 跳空歷史分析模組 - 修正版
 Bug 修復：
@@ -82,6 +83,7 @@ def scan_gaps(df: pd.DataFrame, min_gap_atr_ratio: float = 0.3) -> list[dict]:
             "date":          dates[i],
             "direction":     direction,
             "gap_size":      gap_size,
+            "gap_size_signed": gap_size if direction == "up" else -gap_size,  # 有方向的幅度
             "gap_low":       gap_low,
             "gap_high":      gap_high,
             "cur_close":     cur_close,
@@ -200,12 +202,18 @@ def generate_gap_advice(stats: dict, current_price: float,
     if up['count'] > 0:
         fill_char = "容易回補" if up['fill_rate'] > 60 else (
                     "難以回補" if up['fill_rate'] < 35 else "回補率中等")
-        cont_char = "傾向繼續上漲" if up['continue_rate'] > 55 else (
-                    "傾向回落"     if up['continue_rate'] < 45 else "方向不確定")
+        up_cont_rate  = up['continue_rate']          # 次根繼續上漲的比率
+        up_rev_rate   = 100 - up_cont_rate             # 次根回落的比率
+        cont_char = "傾向繼續上漲" if up_cont_rate > 55 else (
+                    "傾向回落"     if up_cont_rate < 45 else "方向不確定")
+        cont_pct  = up_cont_rate if up_cont_rate > 55 else (
+                    up_rev_rate   if up_cont_rate < 45 else up_cont_rate)
+        # 樣本數警告
+        sample_warn = f"⚠️ 樣本數僅{up['count']}次，參考性有限。" if up['count'] < 10 else ""
         lines.append(
             f"▸ 向上跳空（{up['count']}次）：平均缺口 {up['avg_size']:.2f}%，"
             f"20根內回補率 {up['fill_rate']:.0f}%（{fill_char}），"
-            f"次根{cont_char}（{up['continue_rate']:.0f}%）。")
+            f"次根{cont_char}（{cont_pct:.0f}%）。{sample_warn}")
         lines.append(
             f"  後市：第1根 {up['avg_after1']:+.2f}% ／"
             f"第3根 {up['avg_after3']:+.2f}% ／"
@@ -216,12 +224,18 @@ def generate_gap_advice(stats: dict, current_price: float,
     if down['count'] > 0:
         fill_char = "容易回補" if down['fill_rate'] > 60 else (
                     "難以回補" if down['fill_rate'] < 35 else "回補率中等")
-        cont_char = "傾向繼續下跌" if down['continue_rate'] > 55 else (
-                    "傾向反彈"     if down['continue_rate'] < 45 else "方向不確定")
+        dn_cont_rate = down['continue_rate']          # 次根繼續下跌的比率
+        dn_rev_rate  = 100 - dn_cont_rate              # 次根反彈的比率
+        cont_char = "傾向繼續下跌" if dn_cont_rate > 55 else (
+                    "傾向反彈"     if dn_cont_rate < 45 else "方向不確定")
+        # 顯示對應方向的比率（傾向反彈時顯示反彈比率）
+        cont_pct  = dn_cont_rate if dn_cont_rate > 55 else (
+                    dn_rev_rate   if dn_cont_rate < 45 else dn_cont_rate)
+        sample_warn_d = f"⚠️ 樣本數僅{down['count']}次，參考性有限。" if down['count'] < 10 else ""
         lines.append(
             f"▸ 向下跳空（{down['count']}次）：平均缺口 {down['avg_size']:.2f}%，"
             f"20根內回補率 {down['fill_rate']:.0f}%（{fill_char}），"
-            f"次根{cont_char}（{down['continue_rate']:.0f}%）。")
+            f"次根{cont_char}（{cont_pct:.0f}%）。{sample_warn_d}")
         lines.append(
             f"  後市：第1根 {down['avg_after1']:+.2f}% ／"
             f"第3根 {down['avg_after3']:+.2f}% ／"

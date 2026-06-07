@@ -10,8 +10,12 @@ import numpy as np
 import pandas as pd
 
 
-def scan_gaps(df: pd.DataFrame) -> list[dict]:
-    """掃描所有跳空事件"""
+def scan_gaps(df: pd.DataFrame, min_gap_atr_ratio: float = 0.3) -> list[dict]:
+    """
+    掃描所有跳空事件
+    min_gap_atr_ratio: 最小缺口過濾，缺口幅度需 >= ATR × 此比例
+                       預設 0.3（即至少 0.3 個 ATR），過濾微小噪音缺口
+    """
     gaps   = []
     closes = df['Close'].values
     opens  = df['Open'].values
@@ -21,8 +25,17 @@ def scan_gaps(df: pd.DataFrame) -> list[dict]:
     dates  = df.index
     n      = len(df)
 
+    # ── 計算 ATR(14) 用於最小缺口過濾 ───────────────────────────────────────
+    atr_period = min(14, n - 1)
+    tr_arr = np.zeros(n)
+    for k in range(1, n):
+        tr_arr[k] = max(highs[k] - lows[k],
+                        abs(highs[k] - closes[k-1]),
+                        abs(lows[k]  - closes[k-1]))
+    # 滾動14根ATR
+    atr_rolling = pd.Series(tr_arr).rolling(atr_period, min_periods=1).mean().values
+
     # ── 計算前20根均量（不含當根本身）──────────────────────────────────────
-    # 用 shift(1) 先移位，再 rolling，確保均值只包含「當根以前」的20根
     vol_series = pd.Series(vols)
     avg_vol20  = vol_series.shift(1).rolling(20, min_periods=1).mean().values
 
@@ -42,23 +55,24 @@ def scan_gaps(df: pd.DataFrame) -> list[dict]:
         if cur_low > prev_high:
             direction = "up"
             gap_size  = (cur_low - prev_high) / prev_high * 100
-            # Gap Up：缺口區間 = [prev_high, cur_low]
-            # gap_low  = prev_high = 缺口下沿（回補需跌到這裡以下）
-            # gap_high = cur_low   = 缺口上沿
-            gap_low  = prev_high
-            gap_high = cur_low
+            gap_low   = prev_high   # 缺口下沿
+            gap_high  = cur_low     # 缺口上沿
 
         elif cur_high < prev_low:
             direction = "down"
             gap_size  = (prev_low - cur_high) / prev_low * 100
-            # Gap Down：缺口區間 = [cur_high, prev_low]
-            # gap_low  = cur_high  = 缺口上沿
-            # gap_high = prev_low  = 缺口下沿（回補需漲到這裡以上）
-            gap_low  = cur_high
-            gap_high = prev_low
+            gap_low   = cur_high    # 缺口上沿
+            gap_high  = prev_low    # 缺口下沿
 
         else:
             continue
+
+        # ── ATR 最小缺口過濾：缺口幅度需 >= min_gap_atr_ratio 個 ATR ────────
+        atr_now     = float(atr_rolling[i]) if atr_rolling[i] > 0 else 1e-9
+        atr_pct_now = atr_now / cur_close * 100
+        min_gap_pct = atr_pct_now * min_gap_atr_ratio
+        if gap_size < min_gap_pct:
+            continue   # 過濾微小噪音缺口
 
         close_chg     = (cur_close - prev_close) / prev_close * 100
         future_closes = [float(closes[i+j]) for j in range(1, 21) if i+j < n]  # 最多20根

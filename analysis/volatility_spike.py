@@ -67,10 +67,18 @@ def compute_volatility_spike(df: pd.DataFrame, x: int = 20) -> dict | None:
         price_ratios[i]  = pr
         volume_ratios[i] = vr
 
+        # 後5根數據（用於觸發後走勢分析）
+        future_closes = []
+        future_vols   = []
+        for fj in range(1, 6):
+            if i + fj < n:
+                future_closes.append(float(closes[i + fj]))
+                future_vols.append(float(vols[i + fj]))
+
         bars.append({
             "bar_idx":       i,
             "date":          dates[i],
-            "bar_label":     "",           # 填於雙根分析時
+            "bar_label":     "",
             "close":         float(closes[i]),
             "price_chg":     float(closes[i] - closes[i-1]),
             "price_abs":     float(price_abs[i]),
@@ -81,6 +89,8 @@ def compute_volatility_spike(df: pd.DataFrame, x: int = 20) -> dict | None:
             "vol_abs":       float(vol_abs[i]),
             "avg_vol_abs":   float(avg_v),
             "vol_ratio":     float(vr),
+            "future_closes": future_closes,   # 後5根收盤
+            "future_vols":   future_vols,     # 後5根成交量
         })
 
     if not bars:

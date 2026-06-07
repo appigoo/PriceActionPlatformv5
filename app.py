@@ -540,7 +540,7 @@ def _bar(label, val, color):
 def _build_ai_prompt(ticker, interval_lbl, df, patterns, market_struct,
                      volume_analysis, sr_levels, smart_money, signals,
                      scores, ai_text) -> str:
-    """生成完整的 AI 分析 Prompt，可貼入任何 AI 進行深度分析"""
+    """生成完整的 AI 分析 Prompt（改進版）"""
     import datetime as _dt
 
     current   = float(df['Close'].iloc[-1])
@@ -553,6 +553,8 @@ def _build_ai_prompt(ticker, interval_lbl, df, patterns, market_struct,
     reversal  = _strip_html(market_struct.get('reversal_signal', ''))
     ema20_sl  = market_struct.get('ema20_slope', 0)
     ema50_sl  = market_struct.get('ema50_slope', 0)
+    above_e20 = market_struct.get('above_ema20', False)
+    above_e50 = market_struct.get('above_ema50', False)
 
     vol_sig   = volume_analysis.get('vol_signal', '-')
     vol_r     = volume_analysis.get('vol_ratio', 1.0)
@@ -567,36 +569,82 @@ def _build_ai_prompt(ticker, interval_lbl, df, patterns, market_struct,
 
     sig       = signals.get('primary', 'NEUTRAL')
     strength  = signals.get('strength', '-')
+    buy_sc    = signals.get('buy_score', 0)
+    sell_sc   = signals.get('sell_score', 0)
+    buy_rsns  = signals.get('buy_reasons', [])
+    sell_rsns = signals.get('sell_reasons', [])
     trade     = signals.get('trade_setup', {})
     overall   = scores.get('overall_rating', '-')
     conf      = scores.get('confidence', 0)
+
+    # 風報比警告
+    rrr_poor    = trade.get('rrr_poor', False)
+    too_close   = trade.get('too_close', False)
+    entry_warn  = trade.get('entry_warning', '')
+    atr_val     = trade.get('atr', 0)
+    reward_atr  = trade.get('reward_atr', 0)
 
     supports    = sr_levels.get('supports', [])
     resistances = sr_levels.get('resistances', [])
     sup_str = ' / '.join([f'${s:.2f}' for s in supports[:3]]) or '-'
     res_str = ' / '.join([f'${r:.2f}' for r in resistances[:3]]) or '-'
+    dz = sr_levels.get('demand_zones', [])
+    sz = sr_levels.get('supply_zones', [])
+    dz_str = f'${dz[0][0]:.2f}–${dz[0][1]:.2f}' if dz else '無'
+    sz_str = f'${sz[0][0]:.2f}–${sz[0][1]:.2f}' if sz else '無'
 
     sk = patterns.get('single_k', [{}])[0] if patterns.get('single_k') else {}
     dk = patterns.get('double_k', [{}])[0] if patterns.get('double_k') else {}
     tk = patterns.get('triple_k', [{}])[0] if patterns.get('triple_k') else {}
-    macro = patterns.get('macro', [])
 
-    sk_str = sk.get('name', '無') + '：' + _strip_html(sk.get('desc', '')) if sk else '無'
-    dk_str = dk.get('name', '無') + '：' + _strip_html(dk.get('desc', '')) if dk else '無'
-    tk_str = tk.get('name', '無') + '：' + _strip_html(tk.get('desc', '')) if tk else '無'
-    macro_str = chr(10).join([
-        '  - ' + p.get('name','') + '：' + _strip_html(p.get('desc',''))
-        for p in macro
-    ]) or '  無'
+    # 型態學：主導優先（urgency 高的排前）
+    macro_raw = patterns.get('macro', [])
+    _rb = "bear" if any(p.get('bias')=='bear' for p in
+          patterns.get('single_k',[]) + patterns.get('double_k',[])) else "bull"
+    macro_sorted = sorted(macro_raw,
+                          key=lambda p: (p.get('urgency',1), 1 if p.get('bias')==_rb else 0),
+                          reverse=True)
+    macro_lines = []
+    for i, p in enumerate(macro_sorted):
+        tag  = "【主導】" if i == 0 else "【參考】"
+        desc = _strip_html(p.get('desc',''))
+        macro_lines.append(f'  {tag} {p.get("name","")}：{desc}')
+    macro_str = chr(10).join(macro_lines) or '  無'
+
+    # 型態學中有多空並存時的說明
+    bull_macro_ct = sum(1 for p in macro_raw if p.get('bias')=='bull')
+    bear_macro_ct = sum(1 for p in macro_raw if p.get('bias')=='bear')
+    conflict_note = ''
+    if bull_macro_ct > 0 and bear_macro_ct > 0:
+        dom = macro_sorted[0]
+        conflict_note = (f'  ⚠️ 多空型態並存（多頭{bull_macro_ct}個/空頭{bear_macro_ct}個），'
+                         f'主導：{dom.get("name","").split()[0]}（{dom.get("bias","")}），其餘供參考')
+
+    sk_str = sk.get('name','無') + '：' + _strip_html(sk.get('desc','')) if sk else '無'
+    dk_str = dk.get('name','無') + '：' + _strip_html(dk.get('desc','')) if dk else '無'
+    tk_str = tk.get('name','無') + '：' + _strip_html(tk.get('desc','')) if tk else '無'
 
     ai_summary = _strip_html(ai_text)
-    now = _dt.datetime.now().strftime('%Y-%m-%d %H:%M')
+    # 取綜合結論段落
+    if '綜合結論' in ai_summary:
+        ai_summary = ai_summary[ai_summary.find('綜合結論'):].strip()
+    ai_summary = ai_summary[:400]
 
-    nl = chr(10)
-    prompt = nl.join([
+    now = _dt.datetime.now().strftime('%Y-%m-%d %H:%M')
+    nl  = chr(10)
+
+    # 入場條件警告文字
+    if entry_warn:
+        warn_line = f'⚠️ 入場警告：{entry_warn}'
+    elif rrr_poor:
+        warn_line = f'⚠️ 風報比過低（{trade.get("rrr","N/A")}），不建議當前位置入場'
+    else:
+        warn_line = '✅ 入場條件合理'
+
+    lines = [
         '你是一位專業的 Price Action 交易員兼 Smart Money Concept（SMC）分析師。',
-        '請根據以下完整的技術分析數據，給出你的深度分析和具體交易建議。',
-        '要求：直接給出明確方向，不要模稜兩可，像真正的職業交易員一樣做決策。',
+        '請根據以下完整技術分析數據給出深度分析和具體交易建議。',
+        '要求：直接給出明確方向，像職業交易員一樣做決策，並說明具體觸發條件。',
         '',
         '=' * 60,
         '【股票資訊】',
@@ -612,23 +660,28 @@ def _build_ai_prompt(ticker, interval_lbl, df, patterns, market_struct,
         f'趨勢方向：{trend}',
         f'擺動結構：{swing}',
         f'趨勢強度：{t_str}/100',
-        f'EMA20 斜率：{ema20_sl:.3f}%  EMA50 斜率：{ema50_sl:.3f}%',
+        f'EMA20 斜率：{ema20_sl:.3f}%（{"站上" if above_e20 else "跌破"} EMA20）',
+        f'EMA50 斜率：{ema50_sl:.3f}%（{"站上" if above_e50 else "跌破"} EMA50）',
         f'反轉訊號：{reversal if reversal else "無"}',
         '',
         '=' * 60,
         '【K線型態（精確位置）】',
         '=' * 60,
-        f'單K型態（最新第-1根）：{sk_str}',
-        f'雙K型態（最新-2,-1根）：{dk_str}',
+        f'單K（最新第-1根）：{sk_str}',
+        f'雙K（最新-2,-1根）：{dk_str}',
         f'三K以上（最新-5~-1根）：{tk_str}',
-        '型態學（長期結構）：',
+        '型態學（長期結構，主導優先排列）：',
+    ]
+    if conflict_note:
+        lines.append(conflict_note)
+    lines += [
         macro_str,
         '',
         '=' * 60,
         '【成交量分析（最新5根）】',
         '=' * 60,
-        f'最新1根訊號：{vol_sig}（{vol_r:.1f}x均量）',
-        f'近5根量能偏向：{vbias}',
+        f'最新1根：{vol_sig}（{vol_r:.1f}x均量）',
+        f'近5根偏向：{vbias}',
         f'量價背離：{vdiv}',
         '',
         '=' * 60,
@@ -645,40 +698,61 @@ def _build_ai_prompt(ticker, interval_lbl, df, patterns, market_struct,
         '=' * 60,
         f'關鍵支撐（由近到遠）：{sup_str}',
         f'關鍵阻力（由近到遠）：{res_str}',
+        f'需求區（Demand Zone）：{dz_str}',
+        f'供應區（Supply Zone）：{sz_str}',
         '',
         '=' * 60,
-        '【評分與訊號】',
+        '【評分系統詳情】',
         '=' * 60,
+        f'多頭得分：{buy_sc}分  空頭得分：{sell_sc}分',
+        f'分差：{"多頭領先" if buy_sc > sell_sc else "空頭領先"} {abs(buy_sc - sell_sc)} 分',
+        f'多頭得分來源：{", ".join(buy_rsns[:5]) if buy_rsns else "無"}',
+        f'空頭得分來源：{", ".join(sell_rsns[:5]) if sell_rsns else "無"}',
         f'主要訊號：{sig}（強度：{strength}）',
         f'綜合評級：{overall}（信心：{conf}%）',
+        '',
+        '=' * 60,
+        '【交易建議數據】',
+        '=' * 60,
         f'短線方向：{trade.get("short_term", "-")}',
         f'中線方向：{trade.get("mid_term", "-")}',
         f'關鍵支撐：${trade.get("key_support", 0):.2f}',
         f'關鍵阻力：${trade.get("key_resistance", 0):.2f}',
         f'突破價位：${trade.get("breakout_level", 0):.2f}',
-        f'止損位：  ${trade.get("stop_loss", 0):.2f}',
-        f'風報比：  {trade.get("rrr", "N/A")}',
+        f'ATR（14日）：${atr_val:.2f}',
+        f'止損位：${trade.get("stop_loss", 0):.2f}（基於 ATR）',
+        f'風報比：{trade.get("rrr", "N/A")}（收益空間 {reward_atr:.1f} ATR）',
+        warn_line,
         '',
         '=' * 60,
-        '【系統初步分析摘要】',
+        '【系統綜合結論摘要】',
         '=' * 60,
-        ai_summary[:600],
+        ai_summary,
         '',
         '=' * 60,
-        '【請你完成以下分析】',
+        '【請完成以下分析（用繁體中文回答）】',
         '=' * 60,
-        '1. 根據以上數據，你認為當前最關鍵的交易訊號是什麼？為什麼？',
-        '2. 當前價格位置的風險與機會如何評估？',
-        '3. 如果做多，最佳入場點、止損位、目標位是多少？理由？',
-        '4. 如果做空，最佳入場點、止損位、目標位是多少？理由？',
-        '5. 有哪些需要特別警惕的風險因素？',
-        '6. 給出一個你最終的操作建議（必須明確：做多 / 做空 / 觀望），以及執行細節。',
+        '1. 【最關鍵訊號】當前最重要的訊號是什麼？多空訊號中哪個更可信？為什麼？',
+        '2. 【位置評估】當前 $' + f'{current:.2f} 的位置風險與機會如何？距關鍵位的距離重要嗎？',
+        '3. 【做多方案】最佳做多入場觸發條件（不是「現在買」，而是「什麼情況下才買」）、止損位、目標位，以及成功率評估。',
+        '4. 【做空方案】最佳做空入場觸發條件、止損位、目標位，以及成功率評估。',
+        '5. 【風險因素】有哪些可能讓當前判斷完全失效的風險？（包括大盤風險、消息面風險）',
+        '6. 【最終建議】明確說明：做多 / 做空 / 觀望，並給出：',
+        '   - 具體觸發條件（價格突破/跌破某位才入場）',
+        '   - 入場價格區間',
+        '   - 止損價格',
+        '   - 第一目標位、第二目標位',
+        '   - 倉位建議（輕倉/半倉/全倉）',
         '',
-        '注意：請直接給出分析，不要說「作為AI我無法提供投資建議」這類話語。',
-        '像一個有20年經驗的職業交易員一樣，給出你最專業的判斷。',
-    ])
+        '⚠️ 注意：系統已偵測到以下問題，請在分析中特別處理：',
+        f'   - {warn_line}',
+        f'   - 多空型態並存：{conflict_note if conflict_note else "無"}',
+        f'   - 信心度僅 {conf}%，意味著訊號可靠性有限',
+        '',
+        '請像一個真正承擔風險的職業交易員一樣給出判斷，而不是模稜兩可的「兩面都說」。',
+    ]
 
-    return prompt
+    return nl.join(lines)
 
 # ── sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:

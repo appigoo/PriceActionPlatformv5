@@ -537,6 +537,44 @@ def _bar(label, val, color):
             f"style='width:{val}%;background:{color}'></div></div></div>")
 
 
+def _fetch_market_env() -> dict:
+    """抓取大盤環境：SPY 和 QQQ 最新數據，加入 Prompt 作為大盤背景"""
+    result = {
+        'spy_close': None, 'spy_chg': None, 'spy_trend': None,
+        'qqq_close': None, 'qqq_chg': None, 'qqq_trend': None,
+        'vix': None, 'error': None,
+    }
+    try:
+        import yfinance as yf
+        for sym, keys in [('SPY', ('spy_close','spy_chg','spy_trend')),
+                           ('QQQ', ('qqq_close','qqq_chg','qqq_trend'))]:
+            tk = yf.Ticker(sym)
+            df_m = tk.history(period='10d', interval='1d', auto_adjust=True)
+            df_m = df_m.dropna()
+            df_m = df_m[df_m['Volume'] > 0]
+            if len(df_m) >= 2:
+                c0, c1 = float(df_m['Close'].iloc[-1]), float(df_m['Close'].iloc[-2])
+                chg    = (c0 - c1) / c1 * 100
+                # 簡單趨勢：5日均線 vs 10日均線
+                ma5  = float(df_m['Close'].iloc[-5:].mean()) if len(df_m) >= 5  else c0
+                ma10 = float(df_m['Close'].iloc[-10:].mean()) if len(df_m) >= 10 else c0
+                trend = '多頭' if ma5 > ma10 else '空頭'
+                result[keys[0]] = c0
+                result[keys[1]] = chg
+                result[keys[2]] = trend
+
+        # VIX
+        vix_tk = yf.Ticker('^VIX')
+        vix_df = vix_tk.history(period='3d', interval='1d', auto_adjust=True)
+        if len(vix_df) >= 1:
+            result['vix'] = float(vix_df['Close'].iloc[-1])
+
+    except Exception as e:
+        result['error'] = str(e)[:60]
+
+    return result
+
+
 def _build_ai_prompt(ticker, interval_lbl, df, patterns, market_struct,
                      volume_analysis, sr_levels, smart_money, signals,
                      scores, ai_text) -> str:
@@ -653,6 +691,51 @@ def _build_ai_prompt(ticker, interval_lbl, df, patterns, market_struct,
         f'時間週期：{interval_lbl}',
         f'分析時間：{now}',
         f'當前價格：${current:.2f}（較前根 {chg_pct:+.2f}%）',
+        '',
+        '=' * 60,
+        '【大盤環境（重要背景）】',
+        '=' * 60,
+    ]
+
+    # 抓大盤數據（緩存於 session state 避免重複請求）
+    env_key = '_market_env_cache'
+    import time as _time
+    env_cache = st.session_state.get(env_key, {})
+    env_stale = (_time.time() - env_cache.get('_ts', 0)) > 300   # 5分鐘過期
+    if env_stale:
+        env = _fetch_market_env()
+        env['_ts'] = _time.time()
+        st.session_state[env_key] = env
+    else:
+        env = env_cache
+
+    if env.get('error'):
+        lines.append(f'  （大盤數據獲取失敗：{env["error"]}，請自行評估大盤環境）')
+    else:
+        spy_line = (f'  SPY：${env["spy_close"]:.2f}（{env["spy_chg"]:+.2f}%），'
+                    f'短期趨勢 {env["spy_trend"]}')      if env.get('spy_close') else '  SPY：數據不可用'
+        qqq_line = (f'  QQQ：${env["qqq_close"]:.2f}（{env["qqq_chg"]:+.2f}%），'
+                    f'短期趨勢 {env["qqq_trend"]}')      if env.get('qqq_close') else '  QQQ：數據不可用'
+        vix_level = env.get('vix', 0) or 0
+        vix_desc  = ('恐慌（>30，市場風險高）' if vix_level > 30
+                     else '偏高（20-30，謹慎）' if vix_level > 20
+                     else '正常（<20）')
+        vix_line  = f'  VIX恐慌指數：{vix_level:.1f}（{vix_desc}）' if vix_level else '  VIX：數據不可用'
+
+        lines += [spy_line, qqq_line, vix_line]
+
+        # 大盤 vs 個股背離提示
+        if env.get('spy_chg') is not None and env.get('qqq_chg') is not None:
+            mkt_avg = (env['spy_chg'] + env['qqq_chg']) / 2
+            diverge = chg_pct - mkt_avg
+            if abs(diverge) > 2:
+                dir_word = '跑贏' if diverge > 0 else '跑輸'
+                lines.append(f'  ⚡ 個股 vs 大盤背離：{ticker} 今日較大盤{dir_word} {abs(diverge):.1f}%'
+                              f'（{ticker} {chg_pct:+.2f}% vs 大盤均 {mkt_avg:+.2f}%）')
+            else:
+                lines.append(f'  ○ 個股與大盤走勢基本一致（{ticker} {chg_pct:+.2f}% vs 大盤均 {mkt_avg:+.2f}%）')
+
+    lines += [
         '',
         '=' * 60,
         '【市場結構】',

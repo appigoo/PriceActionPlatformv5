@@ -1632,18 +1632,18 @@ def _render_volatility_spike(df, ticker: str, interval: str,
             f"⚡ 歷史同時觸發記錄（共 {len(triggered_hist)} 次，門檻 {y_val:.1f}x）</div>",
             unsafe_allow_html=True)
 
-        # 統計摘要
+        # ── 統計摘要（Fix：第4卡改為最大成交量倍數）────────────────────────
         avg_p = sum(b['price_ratio']  for b in triggered_hist) / len(triggered_hist)
         avg_v = sum(b['vol_ratio']    for b in triggered_hist) / len(triggered_hist)
         max_p = max(b['price_ratio']  for b in triggered_hist)
-        max_v = max(b['vol_ratio']    for b in triggered_hist)
+        max_v = max(b['vol_ratio']    for b in triggered_hist)  # Fix: was max_p shown as 4th
 
         sc1, sc2, sc3, sc4 = st.columns(4)
         for col, label, val, suffix in [
-            (sc1, "觸發次數",    len(triggered_hist), "次"),
-            (sc2, "均價格倍數",  avg_p,               "x"),
-            (sc3, "均成交量倍數", avg_v,              "x"),
-            (sc4, "最大價格倍數", max_p,              "x"),
+            (sc1, "觸發次數",     len(triggered_hist), "次"),
+            (sc2, "均價格倍數",   avg_p,               "x"),
+            (sc3, "均成交量倍數", avg_v,               "x"),
+            (sc4, "最大成交量倍數", max_v,             "x"),  # Fix: max_v not max_p
         ]:
             with col:
                 st.markdown(
@@ -1660,15 +1660,31 @@ def _render_volatility_spike(df, ticker: str, interval: str,
 
         st.markdown("")
 
-        # 詳細表格（倒序：最新在前）
+        # ── 詳細表格（Fix1：漲跌幅加方向；Fix3：日期截到10位）────────────────
         trig_rows = ""
         for b in reversed(triggered_hist):
-            date_str  = str(b['date'])[:16]
+            # Fix3：日線只顯示日期，分鐘線顯示時間
+            date_str  = str(b['date'])[:10]        # 只取 YYYY-MM-DD
             p_r       = b['price_ratio']
             v_r       = b['vol_ratio']
-            p_abs     = b['price_abs']
+            p_abs     = b['price_abs']             # 絕對值（永遠正）
             v_abs     = b['vol_abs']
             close_v   = b['close']
+            prev_close = b.get('prev_close', 0)    # 需要從 bars 取 prev_close
+
+            # Fix1：計算真實漲跌方向（close vs prev_close）
+            # price_abs 是絕對值，需用 close_chg 還原方向
+            close_chg  = b.get('price_chg', 0)     # price_chg = close - prev_close
+            if prev_close and prev_close > 0:
+                actual_pct = close_chg / (close_v - close_chg) * 100 if close_v - close_chg > 0 else 0
+            else:
+                actual_pct = 0
+            # 用 price_chg 直接判斷方向，price_abs 是幅度
+            is_up     = close_chg >= 0
+            chg_color = "#3d8c5f" if is_up else "#c0392b"
+            chg_sign  = "+" if is_up else ""
+            chg_display = f"{chg_sign}{p_abs:.2f}%" if is_up else f"-{p_abs:.2f}%"
+
             # 強度評級
             both_max  = max(p_r, v_r)
             if both_max >= y_val * 3:
@@ -1686,12 +1702,13 @@ def _render_volatility_spike(df, ticker: str, interval: str,
                 f"<td style='padding:6px 10px;font-size:.78rem;color:#6b6560'>{date_str}</td>"
                 f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
                 f"${close_v:.2f}</td>"
-                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
-                f"{p_abs:+.2f}%</td>"
+                f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;"
+                f"font-size:.78rem;color:{chg_color}'>"
+                f"{chg_display}</td>"
                 f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.82rem;"
                 f"font-weight:700;color:#c0392b'>{p_r:.2f}x</td>"
                 f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
-                f"{v_abs:+.2f}%</td>"
+                f"+{v_abs:.2f}%</td>"
                 f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.82rem;"
                 f"font-weight:700;color:#c0392b'>{v_r:.2f}x</td>"
                 f"<td style='padding:6px 10px;font-size:.76rem'>{grade}</td>"

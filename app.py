@@ -1298,6 +1298,20 @@ def _render_gap_history(df, ticker: str, interval: str):
         st.markdown("<div class='section-heading' style='font-size:.85rem'>📋 跳空詳細記錄（最近20次）</div>",
                     unsafe_allow_html=True)
 
+        # Sparkline helper（與異常波動表格共用相同邏輯）
+        def _gap_spark(values, fmt_fn, positive_good=True):
+            if not values:
+                return "<span style='color:#b8b2aa'>—</span>"
+            parts = []
+            for v in values:
+                color = ("#3d8c5f" if v >= 0 else "#c0392b") if positive_good else (
+                        "#c0392b" if v >= 0 else "#3d8c5f")
+                parts.append(
+                    f"<span style='color:{color};font-size:.68rem;"
+                    f"font-family:IBM Plex Mono,monospace'>{fmt_fn(v)}</span>"
+                )
+            return "<span style='color:#d0cbc5;font-size:.65rem'> │ </span>".join(parts)
+
         recent_gaps = sorted(gaps, key=lambda x: x['bar_idx'], reverse=True)[:20]
         table_rows = ""
         for g in recent_gaps:
@@ -1305,9 +1319,19 @@ def _render_gap_history(df, ticker: str, interval: str):
             color = "#3d8c5f" if d=='up' else "#c0392b"
             icon  = "▲ Gap Up" if d=='up' else "▼ Gap Down"
             bg    = "#f0f9f4" if d=='up' else "#fdf0f0"
-            date_str = str(g['date'])[:16]
-            vol_r = g['vol_ratio']
-            vol_col = "#3d8c5f" if vol_r > 1.5 else ("#c0392b" if vol_r < 0.7 else "#6b6560")
+            date_str = str(g['date'])[:10]
+            vol_r    = g['vol_ratio']
+            vol_col  = "#3d8c5f" if vol_r > 1.5 else ("#c0392b" if vol_r < 0.7 else "#6b6560")
+
+            # 後5根 sparkline
+            fc       = g.get('future_closes', [])
+            fv       = g.get('future_vols',   [])
+            c0       = g['cur_close']
+            v0       = g['volume'] or 1
+            fc_pcts  = [(c - c0) / c0 * 100 for c in fc]
+            fv_ratios= [v / v0 for v in fv]
+            p_spark  = _gap_spark(fc_pcts,   lambda v: f"{v:+.1f}%", positive_good=True)
+            v_spark  = _gap_spark(fv_ratios, lambda v: f"{v:.1f}x",  positive_good=True)
 
             table_rows += (
                 f"<tr style='background:{bg}'>"
@@ -1316,7 +1340,7 @@ def _render_gap_history(df, ticker: str, interval: str):
                 f"<td style='padding:6px 10px;font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
                 f"${g['cur_close']:.2f}</td>"
                 f"<td style='padding:6px 10px;color:{color};font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
-                f"{g.get('gap_size_signed', g['gap_size'] if g['direction']=='up' else -g['gap_size']):+.2f}%</td>"
+                f"{g.get('gap_size_signed', g['gap_size'] if d=='up' else -g['gap_size']):+.2f}%</td>"
                 f"<td style='padding:6px 10px;color:{('#3d8c5f' if g['close_chg']>=0 else '#c0392b')};"
                 f"font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
                 f"{g['close_chg']:+.2f}%</td>"
@@ -1325,11 +1349,13 @@ def _render_gap_history(df, ticker: str, interval: str):
                 f"<td style='padding:6px 10px;color:{vol_col};"
                 f"font-family:IBM Plex Mono,monospace;font-size:.78rem'>"
                 f"{vol_r:.1f}x</td>"
+                f"<td style='padding:6px 12px;min-width:220px'>{p_spark}</td>"
+                f"<td style='padding:6px 12px;min-width:180px'>{v_spark}</td>"
                 f"</tr>"
             )
 
         st.markdown(
-            f"<div style='border:1px solid #e0dbd2;border-radius:8px;overflow:hidden'>"
+            f"<div style='border:1px solid #e0dbd2;border-radius:8px;overflow:auto;max-height:440px'>"
             f"<table style='width:100%;border-collapse:collapse'>"
             f"<thead><tr style='background:#f9f7f4;border-bottom:1.5px solid #e0dbd2'>"
             f"<th style='padding:7px 10px;text-align:left;font-size:.72rem;color:#9e9890;font-weight:600'>時間</th>"
@@ -1339,11 +1365,108 @@ def _render_gap_history(df, ticker: str, interval: str):
             f"<th style='padding:7px 10px;text-align:left;font-size:.72rem;color:#9e9890;font-weight:600'>當根漲跌</th>"
             f"<th style='padding:7px 10px;text-align:left;font-size:.72rem;color:#9e9890;font-weight:600'>成交量</th>"
             f"<th style='padding:7px 10px;text-align:left;font-size:.72rem;color:#9e9890;font-weight:600'>量比</th>"
+            f"<th style='padding:7px 10px;text-align:left;font-size:.72rem;color:#4a7c6f;font-weight:600'>後5根價格</th>"
+            f"<th style='padding:7px 10px;text-align:left;font-size:.72rem;color:#5b8fd4;font-weight:600'>後5根量比</th>"
             f"</tr></thead>"
             f"<tbody>{table_rows}</tbody>"
             f"</table></div>",
             unsafe_allow_html=True
         )
+        st.caption("後5根價格：各根收盤相對跳空當根收盤的漲跌幅　後5根量比：各根成交量相對跳空當根成交量的倍數")
+
+        # ── 方案A：Gap Up vs Gap Down 後市平均走勢圖 ─────────────────────────
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots as _msp
+
+        # 收集 Gap Up 和 Gap Down 各自的後5根數據
+        gap_avgs = {}
+        for direction, label, line_color, fill_color in [
+            ('up',   'Gap Up ↑',   '#3d8c5f', 'rgba(61,140,95,0.12)'),
+            ('down', 'Gap Down ↓', '#c0392b', 'rgba(192,57,43,0.12)'),
+        ]:
+            dir_gaps = [g for g in gaps if g['direction'] == direction]
+            if not dir_gaps:
+                continue
+            price_by_bar = [[] for _ in range(5)]
+            vol_by_bar   = [[] for _ in range(5)]
+            for g in dir_gaps:
+                fc = g.get('future_closes', [])
+                fv = g.get('future_vols',   [])
+                c0 = g['cur_close']
+                v0 = g['volume'] or 1
+                for j in range(min(5, len(fc))):
+                    price_by_bar[j].append((fc[j] - c0) / c0 * 100)
+                for j in range(min(5, len(fv))):
+                    vol_by_bar[j].append(fv[j] / v0)
+            import numpy as _np
+            avg_p = [0.0] + [float(_np.mean(lst)) if lst else 0 for lst in price_by_bar]
+            avg_v = [1.0] + [float(_np.mean(lst)) if lst else 1 for lst in vol_by_bar]
+            gap_avgs[direction] = {'avg_p': avg_p, 'avg_v': avg_v,
+                                   'label': label, 'p_color': line_color,
+                                   'fill': fill_color, 'count': len(dir_gaps)}
+
+        if gap_avgs:
+            x_labels = ["觸發", "+1根", "+2根", "+3根", "+4根", "+5根"]
+            fig_gap = _msp(rows=1, cols=2, subplot_titles=["跳空後平均價格走勢", "跳空後平均成交量變化"],
+                           horizontal_spacing=0.1)
+
+            for direction, info in gap_avgs.items():
+                avg_p  = info['avg_p']
+                avg_v  = info['avg_v']
+                pc     = info['p_color']
+                lbl    = f"{info['label']}（{info['count']}次）"
+                x_p    = x_labels[:len(avg_p)]
+
+                # 價格走勢
+                fig_gap.add_trace(go.Scatter(
+                    x=x_p, y=avg_p,
+                    mode='lines+markers+text',
+                    name=lbl,
+                    line=dict(color=pc, width=2.5),
+                    marker=dict(size=9, color=[("#3d8c5f" if v>=0 else "#c0392b") for v in avg_p],
+                                line=dict(width=1.5, color='white')),
+                    text=[f"{v:+.1f}%" for v in avg_p],
+                    textposition='top center',
+                    textfont=dict(size=8, color=pc, family='IBM Plex Mono'),
+                ), row=1, col=1)
+
+                # 成交量走勢
+                x_v = x_labels[:len(avg_v)]
+                fig_gap.add_trace(go.Scatter(
+                    x=x_v, y=avg_v,
+                    mode='lines+markers+text',
+                    name=lbl, showlegend=False,
+                    line=dict(color=pc, width=2, dash='dot'),
+                    marker=dict(size=8, color=pc, line=dict(width=1.5, color='white')),
+                    text=[f"{v:.1f}x" for v in avg_v],
+                    textposition='bottom center',
+                    textfont=dict(size=8, color=pc, family='IBM Plex Mono'),
+                ), row=1, col=2)
+
+            fig_gap.add_hline(y=0, row=1, col=1,
+                              line=dict(color='#e0dbd2', width=1, dash='dash'))
+            fig_gap.add_hline(y=1, row=1, col=2,
+                              line=dict(color='#e0dbd2', width=1, dash='dash'))
+
+            fig_gap.update_layout(
+                plot_bgcolor='#ffffff', paper_bgcolor='#f9f7f4',
+                height=300, margin=dict(l=45, r=45, t=40, b=15),
+                font=dict(family='IBM Plex Mono', color='#6b6560', size=9),
+                legend=dict(orientation='h', x=0.5, xanchor='center', y=1.12,
+                            bgcolor='rgba(255,255,255,.85)', bordercolor='#ede9e3',
+                            borderwidth=1, font=dict(size=9)),
+                hovermode='x unified',
+            )
+            fig_gap.update_yaxes(gridcolor='#ede9e3', tickfont=dict(size=8),
+                                 ticksuffix='%', row=1, col=1)
+            fig_gap.update_yaxes(gridcolor='#ede9e3', tickfont=dict(size=8),
+                                 ticksuffix='x', row=1, col=2)
+            fig_gap.update_xaxes(tickfont=dict(size=8))
+
+            st.markdown("<div class='section-heading' style='font-size:.85rem'>📈 跳空後平均走勢對比</div>",
+                        unsafe_allow_html=True)
+            st.plotly_chart(fig_gap, use_container_width=True,
+                            config={"displaylogo": False, "scrollZoom": False})
 
     # ── 主觀交易建議 ──────────────────────────────────────────────────────────
     st.markdown("<div class='section-heading' style='font-size:.85rem'>💡 跳空交易建議</div>",

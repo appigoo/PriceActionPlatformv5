@@ -1,4 +1,3 @@
-
 """
 跳空歷史分析模組 - 修正版
 Bug 修復：
@@ -76,7 +75,8 @@ def scan_gaps(df: pd.DataFrame, min_gap_atr_ratio: float = 0.3) -> list[dict]:
             continue   # 過濾微小噪音缺口
 
         close_chg     = (cur_close - prev_close) / prev_close * 100
-        future_closes = [float(closes[i+j]) for j in range(1, 21) if i+j < n]  # 最多20根
+        future_closes = [float(closes[i+j]) for j in range(1, 6) if i+j < n]  # 後5根收盤
+        future_vols   = [float(vols[i+j])   for j in range(1, 6) if i+j < n]  # 後5根成交量
 
         gaps.append({
             "bar_idx":       i,
@@ -96,6 +96,7 @@ def scan_gaps(df: pd.DataFrame, min_gap_atr_ratio: float = 0.3) -> list[dict]:
             "volume":        cur_vol,
             "vol_ratio":     vol_ratio,
             "future_closes": future_closes,
+            "future_vols":   future_vols,
         })
 
     return gaps

@@ -2381,6 +2381,88 @@ def render_ticker(ctx: dict):
         # scores
         st.markdown("<div class='section-heading'>📊 評分系統</div>", unsafe_allow_html=True)
         r_bg = "#eaf4ee" if "看多" in overall else ("#fdecea" if "看空" in overall else "#fdf6e3")
+
+        # ── 評級理由 ──────────────────────────────────────────────────────────
+        buy_rsns_sc  = signals.get('buy_reasons',  [])
+        sell_rsns_sc = signals.get('sell_reasons', [])
+        conf_sc      = scores.get('confidence', 0)
+        dist_sc      = scores.get('distribution_score', 0)
+        fake_sc      = scores.get('fakeout_score', 0)
+        buy_sc_val   = signals.get('buy_score',  0)
+        sell_sc_val  = signals.get('sell_score', 0)
+
+        # 看多理由（正面因素）
+        bull_items = []
+        for r in buy_rsns_sc[:6]:
+            bull_items.append(
+                f"<div style='display:flex;align-items:center;gap:6px;padding:3px 0'>"
+                f"<span style='color:#3d8c5f;font-size:.9rem'>✓</span>"
+                f"<span style='font-size:.78rem;color:#2d6a4f'>{r}</span></div>"
+            )
+        # 看空理由（風險因素）
+        bear_items = []
+        for r in sell_rsns_sc[:6]:
+            bear_items.append(
+                f"<div style='display:flex;align-items:center;gap:6px;padding:3px 0'>"
+                f"<span style='color:#c0392b;font-size:.9rem'>✗</span>"
+                f"<span style='font-size:.78rem;color:#922b21'>{r}</span></div>"
+            )
+        # 額外風險提示
+        risk_notes = []
+        if dist_sc >= 50:
+            risk_notes.append(f"主力出貨風險 {dist_sc}% — 疑似主力派發，謹慎追多")
+        if fake_sc >= 50:
+            risk_notes.append(f"假突破風險 {fake_sc}% — 突破後可能快速回落")
+        if conf_sc <= 45:
+            risk_notes.append(f"信心度僅 {conf_sc}% — 訊號可靠性有限，建議輕倉")
+
+        # 組裝理由 HTML
+        reasons_html = ""
+        if bull_items or bear_items or risk_notes:
+            bull_col_html = (
+                f"<div style='flex:1;min-width:180px'>"
+                f"<div style='font-size:.72rem;font-weight:700;color:#3d8c5f;"
+                f"margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid #c8e6c9'>"
+                f"✅ 看多理由（多頭得分 {buy_sc_val}）</div>"
+                + ("".join(bull_items) if bull_items else
+                   "<div style='font-size:.76rem;color:#9e9890'>無明顯看多訊號</div>")
+                + "</div>"
+            ) if bull_items or not bear_items else ""
+
+            bear_col_html = (
+                f"<div style='flex:1;min-width:180px'>"
+                f"<div style='font-size:.72rem;font-weight:700;color:#c0392b;"
+                f"margin-bottom:4px;padding-bottom:4px;border-bottom:1px solid #ffcdd2'>"
+                f"⚠️ 風險因素（空頭得分 {sell_sc_val}）</div>"
+                + ("".join(bear_items) if bear_items else
+                   "<div style='font-size:.76rem;color:#9e9890'>無明顯看空訊號</div>")
+                + "</div>"
+            ) if bear_items else ""
+
+            risk_html = ""
+            if risk_notes:
+                risk_items = "".join([
+                    f"<div style='font-size:.75rem;color:#b07d2e;padding:2px 0'>"
+                    f"⚡ {n}</div>" for n in risk_notes
+                ])
+                risk_html = (
+                    f"<div style='margin-top:.6rem;padding-top:.6rem;"
+                    f"border-top:1px solid #ede9e3'>"
+                    f"<div style='font-size:.72rem;font-weight:700;color:#b07d2e;"
+                    f"margin-bottom:4px'>⚡ 需要警惕</div>"
+                    + risk_items + "</div>"
+                )
+
+            reasons_html = (
+                f"<div style='margin-top:.8rem;padding-top:.8rem;"
+                f"border-top:1px solid #ede9e3'>"
+                f"<div style='display:flex;gap:1.2rem;flex-wrap:wrap'>"
+                + bull_col_html + bear_col_html
+                + "</div>"
+                + risk_html
+                + "</div>"
+            )
+
         sh = (_bar("趨勢強度",     scores.get('trend_strength',0),     "#4a7c6f") +
               _bar("主力吸籌概率", scores.get('accumulation_score',0), "#3d8c5f") +
               _bar("主力出貨風險", scores.get('distribution_score',0), "#c0392b") +
@@ -2388,7 +2470,8 @@ def render_ticker(ctx: dict):
               _bar("假突破風險",   scores.get('fakeout_score',0),      "#c0706a") +
               f"<div style='text-align:center;margin-top:1rem'>"
               f"<div class='rating-badge' style='background:{r_bg};border:1.5px solid {r_col};color:{r_col}'>"
-              f"{overall}</div></div>")
+              f"{overall}</div></div>"
+              + reasons_html)
         st.markdown(f"<div class='white-card'>{sh}</div>", unsafe_allow_html=True)
 
         # trade setup + monitor button

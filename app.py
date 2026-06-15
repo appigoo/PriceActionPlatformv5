@@ -76,7 +76,7 @@ from charts.candlestick_chart    import build_chart
 def _ss(key, val):
     if key not in st.session_state: st.session_state[key] = val
 
-_ss("stock_list",    ["TSLA", "QQQ", "NIO", "NVDA", "META", "AAPL"])
+_ss("stock_list",    ["TSLA", "QQQ", "SPCX", "NIO", "NVDA", "META", "AAPL"])
 _ss("cached",        {})      # {ticker: result_dict}
 _ss("monitors",      {})      # {ticker: {levels, triggered, active}}
 _ss("alert_hashes",  set())

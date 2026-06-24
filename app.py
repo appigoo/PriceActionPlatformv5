@@ -1293,6 +1293,41 @@ def _render_gap_history(df, ticker: str, interval: str):
     st.plotly_chart(fig, use_container_width=True,
                     config={"scrollZoom": True, "displaylogo": False})
 
+    # ── 數據診斷（Debug）────────────────────────────────────────────────────
+    with st.expander("🔍 數據診斷（最新5根K線原始數據）", expanded=False):
+        _diag_df = df.tail(5)[['Open','High','Low','Close','Volume']].copy()
+        _diag_df.index = _diag_df.index.strftime('%Y-%m-%d')
+        _diag_df['Volume'] = (_diag_df['Volume']/1e6).round(1).astype(str) + 'M'
+        for col in ['Open','High','Low','Close']:
+            _diag_df[col] = _diag_df[col].round(2)
+        st.dataframe(_diag_df, use_container_width=True)
+        st.caption(
+            f"數據來源：yfinance（auto_adjust=True）　"
+            f"最新日期：{str(df.index[-1])[:10]}　"
+            f"總根數：{len(df)}"
+        )
+        # Gap check on last 3 bars
+        st.markdown("**最近2根間的跳空偵測：**")
+        _n = len(df)
+        for _i in range(max(1,_n-3), _n):
+            _ph = float(df['High'].iloc[_i-1])
+            _pl = float(df['Low'].iloc[_i-1])
+            _ch = float(df['High'].iloc[_i])
+            _cl = float(df['Low'].iloc[_i])
+            _d1 = str(df.index[_i-1])[:10]
+            _d2 = str(df.index[_i])[:10]
+            if _ch < _pl:
+                _gs = (_pl-_ch)/_pl*100
+                st.markdown(f"✅ **Gap Down** {_d1}→{_d2}: "
+                            f"今高{_ch:.2f} < 前低{_pl:.2f}，缺口{_gs:.3f}%")
+            elif _cl > _ph:
+                _gs = (_cl-_ph)/_ph*100
+                st.markdown(f"✅ **Gap Up** {_d1}→{_d2}: "
+                            f"今低{_cl:.2f} > 前高{_ph:.2f}，缺口{_gs:.3f}%")
+            else:
+                st.markdown(f"○ 無跳空 {_d1}→{_d2}: "
+                            f"前高{_ph:.2f} 前低{_pl:.2f} | 今高{_ch:.2f} 今低{_cl:.2f}")
+
     # ── 詳細記錄表格 ──────────────────────────────────────────────────────────
     if gaps:
         st.markdown("<div class='section-heading' style='font-size:.85rem'>📋 跳空詳細記錄（最近20次）</div>",

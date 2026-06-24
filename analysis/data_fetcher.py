@@ -21,12 +21,40 @@ INTRADAY_INTERVALS = {"1m", "5m", "15m", "30m", "1h"}
 
 
 def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFrame | None:
-    period = INTERVAL_PERIOD_MAP.get(interval, "1y")
     try:
-        tk = yf.Ticker(ticker)
-        df = tk.history(period=period, interval=interval, auto_adjust=True)
+        tk  = yf.Ticker(ticker)
+        now = datetime.utcnow()
+
+        # ── 用 start/end 取代 period，確保拿到最新數據 ───────────────────────
+        # 加 2 天緩衝到 end，避免時區問題導致漏掉今天/昨天
+        end_dt   = now + timedelta(days=2)
+
+        # 根據 interval 決定往前取多少天
+        LOOKBACK_DAYS = {
+            "1m":  7,      # yfinance 最多7天
+            "5m":  60,
+            "15m": 60,
+            "30m": 60,
+            "1h":  730,
+            "1d":  1825,   # 5年
+            "1wk": 3650,   # 10年
+        }
+        lookback  = LOOKBACK_DAYS.get(interval, 365)
+        start_dt  = now - timedelta(days=lookback)
+
+        df = tk.history(
+            start=start_dt.strftime('%Y-%m-%d'),
+            end=end_dt.strftime('%Y-%m-%d'),
+            interval=interval,
+            auto_adjust=True
+        )
+
         if df is None or len(df) < 10:
-            return None
+            # Fallback：用 period 參數再試一次
+            period = INTERVAL_PERIOD_MAP.get(interval, "1y")
+            df = tk.history(period=period, interval=interval, auto_adjust=True)
+            if df is None or len(df) < 10:
+                return None
 
         df = df.dropna(subset=["Open","High","Low","Close"])
 
@@ -34,7 +62,7 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
         if interval in INTRADAY_INTERVALS:
             df = _filter_trading_hours(df, interval)
 
-        # ── 過濾成交量為 0 的 bar（非交易時段殘留）──────────────────────────
+        # ── 過濾成交量為 0 的 bar ────────────────────────────────────────────
         if "Volume" in df.columns:
             df = df[df["Volume"] > 0]
 

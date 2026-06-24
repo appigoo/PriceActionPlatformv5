@@ -1088,9 +1088,9 @@ def _render_gap_history(df, ticker: str, interval: str):
     # 最小缺口過濾（ATR 倍數）
     min_gap_ratio = st.slider(
         "最小缺口過濾（ATR 倍數）",
-        min_value=0.0, max_value=1.0, value=0.1, step=0.05,
+        min_value=0.0, max_value=1.0, value=0.05, step=0.05,
         key=f"gap_min_atr_{ticker}",
-        help="0 = 不過濾；0.1 = 建議日線（收錄小缺口如0.4%）；0.2 = 只看明顯缺口（>0.6%）"
+        help="0 = 不過濾；0.05 = 建議日線（收錄 0.3%+ 缺口）；0.1 = 只看較明顯缺口；0.2 = 只看大缺口"
     )
     # 顯示當前過濾門檻（讓用戶知道多小的缺口會被過濾）
     try:

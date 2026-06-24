@@ -76,7 +76,7 @@ from charts.candlestick_chart    import build_chart
 def _ss(key, val):
     if key not in st.session_state: st.session_state[key] = val
 
-_ss("stock_list",    ["TSLA", "QQQ", "SPCX", "NIO", "NVDA", "META", "AAPL"])
+_ss("stock_list",    ["TSLA", "NVDA", "META", "AAPL"])
 _ss("cached",        {})      # {ticker: result_dict}
 _ss("monitors",      {})      # {ticker: {levels, triggered, active}}
 _ss("alert_hashes",  set())
@@ -1088,9 +1088,9 @@ def _render_gap_history(df, ticker: str, interval: str):
     # 最小缺口過濾（ATR 倍數）
     min_gap_ratio = st.slider(
         "最小缺口過濾（ATR 倍數）",
-        min_value=0.0, max_value=1.0, value=0.3, step=0.05,
+        min_value=0.0, max_value=1.0, value=0.2, step=0.05,
         key=f"gap_min_atr_{ticker}",
-        help="0 = 不過濾；0.3 = 缺口需 ≥ 0.3 ATR（建議日線用 0.3，分鐘線用 0.1）"
+        help="0 = 不過濾；0.05 = 極小缺口也收錄；0.2 = 建議日線；0.1 = 分鐘線"
     )
     try:
         gaps = scan_gaps(df, min_gap_atr_ratio=min_gap_ratio)

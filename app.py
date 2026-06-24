@@ -1088,10 +1088,28 @@ def _render_gap_history(df, ticker: str, interval: str):
     # 最小缺口過濾（ATR 倍數）
     min_gap_ratio = st.slider(
         "最小缺口過濾（ATR 倍數）",
-        min_value=0.0, max_value=1.0, value=0.2, step=0.05,
+        min_value=0.0, max_value=1.0, value=0.1, step=0.05,
         key=f"gap_min_atr_{ticker}",
-        help="0 = 不過濾；0.05 = 極小缺口也收錄；0.2 = 建議日線；0.1 = 分鐘線"
+        help="0 = 不過濾；0.1 = 建議日線（收錄小缺口如0.4%）；0.2 = 只看明顯缺口（>0.6%）"
     )
+    # 顯示當前過濾門檻（讓用戶知道多小的缺口會被過濾）
+    try:
+        import numpy as _np_g
+        _hg = df['High'].values; _lg = df['Low'].values; _cg = df['Close'].values
+        _trg = [max(_hg[i]-_lg[i], abs(_hg[i]-_cg[i-1]), abs(_lg[i]-_cg[i-1]))
+                for i in range(1, len(df))]
+        _atrg = float(_np_g.mean(_trg[-14:])) if _trg else 0
+        _atr_pct_g = _atrg / float(_cg[-1]) * 100 if _cg[-1] > 0 else 0
+        _cur_min = _atr_pct_g * min_gap_ratio
+        if min_gap_ratio > 0:
+            st.caption(
+                f"當前門檻：ATR {_atr_pct_g:.2f}% × {min_gap_ratio:.2f} = "
+                f"缺口需 ≥ {_cur_min:.3f}% 才會顯示（缺口小於此值的會被過濾）"
+            )
+        else:
+            st.caption("當前門檻：0（顯示所有缺口，含微小噪音）")
+    except Exception:
+        pass
     try:
         gaps = scan_gaps(df, min_gap_atr_ratio=min_gap_ratio)
     except TypeError:

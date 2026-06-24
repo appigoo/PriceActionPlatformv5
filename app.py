@@ -2351,12 +2351,15 @@ def compute_ticker(ticker: str) -> dict | None:
     scores          = compute_scores(market_struct, volume_analysis, smart_money, signals)
     ai_text         = generate_ai_analysis(ticker, df, patterns, market_struct,
                                            volume_analysis, sr_levels, smart_money, signals, scores)
+    import time as _t
     return dict(ticker=ticker, interval=interval, interval_lbl=interval_lbl,
                 df=df, patterns=patterns, market_struct=market_struct,
                 volume_analysis=volume_analysis, sr_levels=sr_levels,
                 smart_money=smart_money, signals=signals, scores=scores,
                 ai_text=ai_text, tg_token=tg_token, tg_chat_id=tg_chat_id,
-                timestamp=datetime.now().strftime('%Y-%m-%d %H:%M'))
+                timestamp=datetime.now().strftime('%Y-%m-%d %H:%M'),
+                fetch_ts=_t.time(),                          # Unix 時間戳供新鮮度檢查
+                df_latest=str(df.index[-1])[:10])            # 最新K線日期
 
 
 # ── 渲染單支股票分析 ───────────────────────────────────────────────────────────
@@ -2899,7 +2902,25 @@ tabs = st.tabs(tab_labels)
 for tab, tk in zip(tabs, stock_list):
     with tab:
         if tk in st.session_state.cached:
-            render_ticker(st.session_state.cached[tk])
+            _ctx = st.session_state.cached[tk]
+            # 新鮮度警告：日線快取超過6小時提示重新分析
+            import time as _t2
+            _age_h = (_t2.time() - _ctx.get('fetch_ts', 0)) / 3600
+            _df_latest = _ctx.get('df_latest', '')
+            _stale_warn = ""
+            if interval == '1d' and _age_h > 6:
+                _stale_warn = (
+                    f"⚠️ 數據已快取 {_age_h:.0f} 小時（最新K線：{_df_latest}），"
+                    f"請點擊「重新分析」取得最新數據。"
+                )
+            elif interval in ('1m','5m','15m','30m') and _age_h > 0.25:
+                _stale_warn = (
+                    f"⚠️ 數據已快取 {_age_h*60:.0f} 分鐘（最新K線：{_df_latest}），"
+                    f"短線週期建議重新分析。"
+                )
+            if _stale_warn:
+                st.warning(_stale_warn)
+            render_ticker(_ctx)
         else:
             st.markdown(
                 f"<div style='text-align:center;padding:3rem 2rem;color:#b8b2aa'>"

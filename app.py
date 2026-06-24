@@ -1324,27 +1324,51 @@ def _render_gap_history(df, ticker: str, interval: str):
             f"最新日期：{str(df.index[-1])[:10]}　"
             f"總根數：{len(df)}"
         )
-        # Gap check on last 3 bars
-        st.markdown("**最近2根間的跳空偵測：**")
-        _n = len(df)
-        for _i in range(max(1,_n-3), _n):
+        # Gap check with ATR filter diagnosis
+        st.markdown("**最近3根間的跳空偵測（含ATR過濾診斷）：**")
+        import numpy as _np_d
+        _dh = df['High'].values; _dl = df['Low'].values
+        _dc = df['Close'].values; _n_d = len(df)
+        # ATR rolling
+        _tr_d = [max(_dh[i]-_dl[i], abs(_dh[i]-_dc[i-1]), abs(_dl[i]-_dc[i-1]))
+                 for i in range(1, _n_d)]
+        _atr_d = _np_d.array([0.0] + _tr_d)
+        import pandas as _pd_d
+        _atr_roll = _pd_d.Series(_atr_d).rolling(14, min_periods=1).mean().values
+
+        for _i in range(max(1, _n_d-3), _n_d):
             _ph = float(df['High'].iloc[_i-1])
             _pl = float(df['Low'].iloc[_i-1])
             _ch = float(df['High'].iloc[_i])
-            _cl = float(df['Low'].iloc[_i])
+            _cl_v = float(df['Low'].iloc[_i])
+            _cc = float(df['Close'].iloc[_i])
             _d1 = str(df.index[_i-1])[:10]
             _d2 = str(df.index[_i])[:10]
+            _atr_i = float(_atr_roll[_i]) if _atr_roll[_i] > 0 else 1e-9
+            _atr_pct_i = _atr_i / _cc * 100
+            _min_pct_i = _atr_pct_i * min_gap_ratio
+
             if _ch < _pl:
-                _gs = (_pl-_ch)/_pl*100
-                st.markdown(f"✅ **Gap Down** {_d1}→{_d2}: "
-                            f"今高{_ch:.2f} < 前低{_pl:.2f}，缺口{_gs:.3f}%")
-            elif _cl > _ph:
-                _gs = (_cl-_ph)/_ph*100
-                st.markdown(f"✅ **Gap Up** {_d1}→{_d2}: "
-                            f"今低{_cl:.2f} > 前高{_ph:.2f}，缺口{_gs:.3f}%")
+                _gs = (_pl - _ch) / _pl * 100
+                _pass = _gs >= _min_pct_i
+                _status = "✅ 通過過濾" if _pass else f"❌ 被過濾（缺口{_gs:.3f}% < 門檻{_min_pct_i:.3f}%）"
+                st.markdown(
+                    f"**Gap Down** {_d1}→{_d2}: 今高{_ch:.2f} < 前低{_pl:.2f}，"
+                    f"缺口{_gs:.3f}%　ATR={_atr_pct_i:.2f}%　門檻={_min_pct_i:.3f}%　{_status}"
+                )
+            elif _cl_v > _ph:
+                _gs = (_cl_v - _ph) / _ph * 100
+                _pass = _gs >= _min_pct_i
+                _status = "✅ 通過過濾" if _pass else f"❌ 被過濾（缺口{_gs:.3f}% < 門檻{_min_pct_i:.3f}%）"
+                st.markdown(
+                    f"**Gap Up** {_d1}→{_d2}: 今低{_cl_v:.2f} > 前高{_ph:.2f}，"
+                    f"缺口{_gs:.3f}%　ATR={_atr_pct_i:.2f}%　門檻={_min_pct_i:.3f}%　{_status}"
+                )
             else:
-                st.markdown(f"○ 無跳空 {_d1}→{_d2}: "
-                            f"前高{_ph:.2f} 前低{_pl:.2f} | 今高{_ch:.2f} 今低{_cl:.2f}")
+                st.markdown(
+                    f"○ 無跳空 {_d1}→{_d2}: "
+                    f"前高{_ph:.2f} 前低{_pl:.2f} | 今高{_ch:.2f} 今低{_cl_v:.2f}"
+                )
 
     # ── 詳細記錄表格 ──────────────────────────────────────────────────────────
     if gaps:

@@ -21,60 +21,79 @@ INTRADAY_INTERVALS = {"1m", "5m", "15m", "30m", "1h"}
 
 
 def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFrame | None:
-    try:
-        tk  = yf.Ticker(ticker)
-        now = datetime.utcnow()
+    """
+    多策略抓取 OHLCV，確保拿到最新數據。
+    策略順序：
+      1. start/end + auto_adjust=True
+      2. start/end + auto_adjust=False（手動調整）
+      3. period 參數 fallback
+    """
+    now    = datetime.utcnow()
+    end_dt = now + timedelta(days=3)   # +3天緩衝
 
-        # ── 用 start/end 取代 period，確保拿到最新數據 ───────────────────────
-        # 加 2 天緩衝到 end，避免時區問題導致漏掉今天/昨天
-        end_dt   = now + timedelta(days=2)
+    LOOKBACK_DAYS = {
+        "1m": 7, "5m": 60, "15m": 60, "30m": 60,
+        "1h": 730, "1d": 1825, "1wk": 3650,
+    }
+    lookback = LOOKBACK_DAYS.get(interval, 365)
+    start_dt = now - timedelta(days=lookback)
+    s_str    = start_dt.strftime('%Y-%m-%d')
+    e_str    = end_dt.strftime('%Y-%m-%d')
 
-        # 根據 interval 決定往前取多少天
-        LOOKBACK_DAYS = {
-            "1m":  7,      # yfinance 最多7天
-            "5m":  60,
-            "15m": 60,
-            "30m": 60,
-            "1h":  730,
-            "1d":  1825,   # 5年
-            "1wk": 3650,   # 10年
-        }
-        lookback  = LOOKBACK_DAYS.get(interval, 365)
-        start_dt  = now - timedelta(days=lookback)
-
-        df = tk.history(
-            start=start_dt.strftime('%Y-%m-%d'),
-            end=end_dt.strftime('%Y-%m-%d'),
-            interval=interval,
-            auto_adjust=True
-        )
-
+    def _clean(df):
+        """清洗 df：去 NaN、過濾非交易時段、過濾零成交量"""
         if df is None or len(df) < 10:
-            # Fallback：用 period 參數再試一次
-            period = INTERVAL_PERIOD_MAP.get(interval, "1y")
-            df = tk.history(period=period, interval=interval, auto_adjust=True)
-            if df is None or len(df) < 10:
-                return None
-
+            return None
         df = df.dropna(subset=["Open","High","Low","Close"])
-
-        # ── 過濾非交易時段（只對分鐘/小時級別）────────────────────────────
         if interval in INTRADAY_INTERVALS:
             df = _filter_trading_hours(df, interval)
-
-        # ── 過濾成交量為 0 的 bar ────────────────────────────────────────────
         if "Volume" in df.columns:
             df = df[df["Volume"] > 0]
-
         if len(df) < 10:
             return None
-
-        df = df.tail(bar_count)
-        df.index = pd.to_datetime(df.index)
         return df
 
+    tk = yf.Ticker(ticker)
+    df = None
+
+    # ── 策略1：start/end + auto_adjust=True ─────────────────────────────
+    try:
+        raw = tk.history(start=s_str, end=e_str,
+                         interval=interval, auto_adjust=True, actions=False)
+        df = _clean(raw)
     except Exception:
+        df = None
+
+    # ── 策略2：start/end + auto_adjust=False ────────────────────────────
+    if df is None:
+        try:
+            raw = tk.history(start=s_str, end=e_str,
+                             interval=interval, auto_adjust=False, actions=False)
+            if raw is not None and len(raw) >= 10:
+                # 手動用 Adj Close 調整（若有）
+                if 'Adj Close' in raw.columns:
+                    ratio = raw['Adj Close'] / raw['Close']
+                    for col in ['Open','High','Low','Close']:
+                        raw[col] = raw[col] * ratio
+                df = _clean(raw)
+        except Exception:
+            df = None
+
+    # ── 策略3：period 參數 fallback ──────────────────────────────────────
+    if df is None:
+        try:
+            period = INTERVAL_PERIOD_MAP.get(interval, "1y")
+            raw = tk.history(period=period, interval=interval, auto_adjust=True)
+            df = _clean(raw)
+        except Exception:
+            df = None
+
+    if df is None:
         return None
+
+    df = df.tail(bar_count)
+    df.index = pd.to_datetime(df.index)
+    return df
 
 
 def _filter_trading_hours(df: pd.DataFrame, interval: str) -> pd.DataFrame:

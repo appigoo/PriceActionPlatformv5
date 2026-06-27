@@ -1,8 +1,103 @@
-"""Data fetching with yfinance - 過濾非交易時段"""
+"""Data fetching with yfinance + curl_cffi fallback - 過濾非交易時段"""
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import json
 from datetime import datetime, timedelta
+
+def _fetch_via_curl(ticker: str, interval: str, lookback_days: int) -> pd.DataFrame | None:
+    """
+    用 curl_cffi 模擬瀏覽器直接抓 Yahoo Finance API
+    繞過 yfinance 的數據延遲問題
+    """
+    try:
+        from curl_cffi import requests as curl_requests
+
+        now      = datetime.utcnow()
+        end_ts   = int((now + timedelta(days=2)).timestamp())
+        start_ts = int((now - timedelta(days=lookback_days)).timestamp())
+
+        INTERVAL_MAP = {
+            '1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m',
+            '1h': '60m', '1d': '1d', '1wk': '1wk',
+        }
+        yf_interval = INTERVAL_MAP.get(interval, '1d')
+
+        url = (
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+            f"?interval={yf_interval}&period1={start_ts}&period2={end_ts}"
+            f"&includePrePost=false&events=div%2Csplit"
+        )
+
+        resp = curl_requests.get(
+            url,
+            impersonate="chrome124",
+            timeout=15,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                              "AppleWebKit/537.36 (KHTML, like Gecko) "
+                              "Chrome/124.0.0.0 Safari/537.36",
+                "Accept": "application/json",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
+        )
+
+        if resp.status_code != 200:
+            return None
+
+        data   = resp.json()
+        result = data.get('chart', {}).get('result', [])
+        if not result:
+            return None
+
+        r         = result[0]
+        timestamps= r.get('timestamp', [])
+        quote     = r.get('indicators', {}).get('quote', [{}])[0]
+        adjclose  = r.get('indicators', {}).get('adjclose', [{}])
+        adj_arr   = adjclose[0].get('adjclose', []) if adjclose else []
+
+        if not timestamps:
+            return None
+
+        opens   = quote.get('open',   [None]*len(timestamps))
+        highs   = quote.get('high',   [None]*len(timestamps))
+        lows    = quote.get('low',    [None]*len(timestamps))
+        closes  = quote.get('close',  [None]*len(timestamps))
+        volumes = quote.get('volume', [None]*len(timestamps))
+
+        rows = []
+        for i, ts in enumerate(timestamps):
+            o = opens[i]; h = highs[i]; l = lows[i]
+            c = closes[i]; v = volumes[i]
+            if any(x is None for x in [o, h, l, c]):
+                continue
+            # 用 adjclose 調整（若有）
+            if adj_arr and i < len(adj_arr) and adj_arr[i] and c and c != 0:
+                ratio = adj_arr[i] / c
+                o *= ratio; h *= ratio; l *= ratio; c = adj_arr[i]
+            rows.append({
+                'Open': o, 'High': h, 'Low': l, 'Close': c,
+                'Volume': v or 0,
+            })
+
+        if not rows:
+            return None
+
+        idx = pd.to_datetime(timestamps, unit='s', utc=True).tz_convert('America/New_York')
+        df  = pd.DataFrame(rows, index=idx)
+
+        # 日線：只保留日期部分
+        if interval == '1d':
+            df.index = df.index.normalize().tz_localize(None)
+            df = df[~df.index.duplicated(keep='last')]
+
+        df = df.dropna(subset=['Open','High','Low','Close'])
+        df = df[df['Volume'] > 0]
+        return df if len(df) >= 5 else None
+
+    except Exception:
+        return None
+
 
 INTERVAL_PERIOD_MAP = {
     "1m":  "5d",
@@ -56,13 +151,22 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
     tk = yf.Ticker(ticker)
     df = None
 
-    # ── 策略1：start/end + auto_adjust=True ─────────────────────────────
+    # ── 策略0：curl_cffi 直接抓 Yahoo Finance API（最新，繞過延遲）────────
     try:
-        raw = tk.history(start=s_str, end=e_str,
-                         interval=interval, auto_adjust=True, actions=False)
-        df = _clean(raw)
+        df = _fetch_via_curl(ticker, interval, lookback)
+        if df is not None:
+            df = _clean(df)
     except Exception:
         df = None
+
+    # ── 策略1：start/end + auto_adjust=True ─────────────────────────────
+    if df is None:
+        try:
+            raw = tk.history(start=s_str, end=e_str,
+                             interval=interval, auto_adjust=True, actions=False)
+            df = _clean(raw)
+        except Exception:
+            df = None
 
     # ── 策略2：start/end + auto_adjust=False ────────────────────────────
     if df is None:

@@ -2488,9 +2488,11 @@ def render_ticker(ctx: dict):
         _fetch_t     = getattr(df, "attrs", {}).get("fetch_time", "")
         _raw_latest  = getattr(df, "attrs", {}).get("raw_latest", "")
         _zero_dates  = getattr(df, "attrs", {}).get("filtered_zero_vol", [])
+        _nan_dates   = getattr(df, "attrs", {}).get("filtered_nan", [])
         _raw_info    = f"(原始最新:{_raw_latest})" if _raw_latest and _raw_latest != _df_date else ""
         _zero_info   = f" 零量過濾:{','.join(_zero_dates)}" if _zero_dates else ""
-        _strat_tip   = f" [{_strategy}{_raw_info}{_zero_info}]" if _strategy not in ("none","unknown","") else ""
+        _nan_info    = f" NaN過濾:{','.join(_nan_dates)}" if _nan_dates else ""
+        _strat_tip   = f" [{_strategy}{_raw_info}{_zero_info}{_nan_info}]" if _strategy not in ("none","unknown","") else ""
         if _trading_days_old >= 3:
             _fresh_badge = (f"<span style='background:#fdecea;color:#c0392b;border-radius:4px;"
                            f"padding:1px 7px;font-size:.66rem;margin-left:8px'>"

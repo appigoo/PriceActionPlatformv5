@@ -2484,9 +2484,13 @@ def render_ticker(ctx: dict):
         _days_old  = (_dt2.strptime(_today,'%Y-%m-%d') - _dt2.strptime(_df_date,'%Y-%m-%d')).days
         _trading_days_old = max(0, _days_old - (_days_old // 7) * 2)
         # 抓取策略信息
-        _strategy  = getattr(df, "attrs", {}).get("strategy", "unknown")
-        _fetch_t   = getattr(df, "attrs", {}).get("fetch_time", "")
-        _strat_tip = f" [{_strategy}]" if _strategy not in ("none","unknown","") else ""
+        _strategy    = getattr(df, "attrs", {}).get("strategy", "unknown")
+        _fetch_t     = getattr(df, "attrs", {}).get("fetch_time", "")
+        _raw_latest  = getattr(df, "attrs", {}).get("raw_latest", "")
+        _zero_dates  = getattr(df, "attrs", {}).get("filtered_zero_vol", [])
+        _raw_info    = f"(原始最新:{_raw_latest})" if _raw_latest and _raw_latest != _df_date else ""
+        _zero_info   = f" 零量過濾:{','.join(_zero_dates)}" if _zero_dates else ""
+        _strat_tip   = f" [{_strategy}{_raw_info}{_zero_info}]" if _strategy not in ("none","unknown","") else ""
         if _trading_days_old >= 3:
             _fresh_badge = (f"<span style='background:#fdecea;color:#c0392b;border-radius:4px;"
                            f"padding:1px 7px;font-size:.66rem;margin-left:8px'>"

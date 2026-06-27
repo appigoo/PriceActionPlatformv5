@@ -139,11 +139,18 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
         """清洗 df：去 NaN、過濾非交易時段、過濾零成交量"""
         if df is None or len(df) < 10:
             return None
+        # 儲存原始最新日期（清洗前）供診斷
+        _raw_latest = str(df.index[-1])[:10] if len(df) > 0 else 'N/A'
         df = df.dropna(subset=["Open","High","Low","Close"])
         if interval in INTRADAY_INTERVALS:
             df = _filter_trading_hours(df, interval)
+        # 記錄零成交量過濾情況
         if "Volume" in df.columns:
+            _zero_vol = df[df["Volume"] <= 0]
+            if len(_zero_vol) > 0:
+                df.attrs['filtered_zero_vol'] = [str(d)[:10] for d in _zero_vol.index[-3:]]
             df = df[df["Volume"] > 0]
+        df.attrs['raw_latest'] = _raw_latest
         if len(df) < 10:
             return None
         return df

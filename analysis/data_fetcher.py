@@ -93,6 +93,31 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
 
     df = df.tail(bar_count)
     df.index = pd.to_datetime(df.index)
+
+    # ── 新鮮度補充：若日線最新K線超過1個交易日舊，嘗試補抓最近5天 ──────────
+    if interval == '1d':
+        try:
+            latest_date = df.index[-1].date()
+            today       = datetime.utcnow().date()
+            days_gap    = (today - latest_date).days
+            # 若缺少超過1天（排除週末）
+            if days_gap >= 2:
+                # 用 period='5d' 補抓最近5天
+                patch_raw = tk.history(period='5d', interval='1d',
+                                       auto_adjust=True, actions=False)
+                if patch_raw is not None and len(patch_raw) > 0:
+                    patch_raw = patch_raw.dropna(subset=['Open','High','Low','Close'])
+                    patch_raw = patch_raw[patch_raw['Volume'] > 0]
+                    patch_raw.index = pd.to_datetime(patch_raw.index)
+                    # 只取比現有數據更新的K線
+                    new_bars = patch_raw[patch_raw.index > df.index[-1]]
+                    if len(new_bars) > 0:
+                        df = pd.concat([df, new_bars])
+                        df = df[~df.index.duplicated(keep='last')]
+                        df = df.sort_index()
+        except Exception:
+            pass  # 補抓失敗不影響主流程
+
     return df
 
 

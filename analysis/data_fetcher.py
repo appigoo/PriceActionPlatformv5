@@ -94,29 +94,62 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
     df = df.tail(bar_count)
     df.index = pd.to_datetime(df.index)
 
-    # ── 新鮮度補充：若日線最新K線超過1個交易日舊，嘗試補抓最近5天 ──────────
+    # ── 新鮮度補充：若日線最新K線超過1天舊，用多種方法補抓 ─────────────────
     if interval == '1d':
         try:
             latest_date = df.index[-1].date()
             today       = datetime.utcnow().date()
             days_gap    = (today - latest_date).days
-            # 若缺少超過1天（排除週末）
+
             if days_gap >= 2:
-                # 用 period='5d' 補抓最近5天
-                patch_raw = tk.history(period='5d', interval='1d',
-                                       auto_adjust=True, actions=False)
+                patch_raw = None
+
+                # 補抓方法1：yf.download()（不同端點，通常更新）
+                try:
+                    patch_dl = yf.download(
+                        ticker,
+                        period='5d',
+                        interval='1d',
+                        auto_adjust=True,
+                        progress=False,
+                        actions=False,
+                    )
+                    if patch_dl is not None and len(patch_dl) > 0:
+                        # yf.download 返回 MultiIndex，展平
+                        if isinstance(patch_dl.columns, pd.MultiIndex):
+                            patch_dl.columns = patch_dl.columns.get_level_values(0)
+                        patch_raw = patch_dl
+                except Exception:
+                    pass
+
+                # 補抓方法2：history(period='5d') fallback
+                if patch_raw is None or len(patch_raw) == 0:
+                    try:
+                        patch_raw = tk.history(
+                            period='5d', interval='1d',
+                            auto_adjust=True, actions=False
+                        )
+                    except Exception:
+                        patch_raw = None
+
+                # 合併新K線
                 if patch_raw is not None and len(patch_raw) > 0:
                     patch_raw = patch_raw.dropna(subset=['Open','High','Low','Close'])
-                    patch_raw = patch_raw[patch_raw['Volume'] > 0]
+                    if 'Volume' in patch_raw.columns:
+                        patch_raw = patch_raw[patch_raw['Volume'] > 0]
                     patch_raw.index = pd.to_datetime(patch_raw.index)
-                    # 只取比現有數據更新的K線
+                    # 去時區使索引對齊
+                    if hasattr(patch_raw.index, 'tz') and patch_raw.index.tz is not None:
+                        patch_raw.index = patch_raw.index.tz_localize(None)
+                    if hasattr(df.index, 'tz') and df.index.tz is not None:
+                        df.index = df.index.tz_localize(None)
                     new_bars = patch_raw[patch_raw.index > df.index[-1]]
                     if len(new_bars) > 0:
                         df = pd.concat([df, new_bars])
                         df = df[~df.index.duplicated(keep='last')]
                         df = df.sort_index()
         except Exception:
-            pass  # 補抓失敗不影響主流程
+            pass
 
     return df
 

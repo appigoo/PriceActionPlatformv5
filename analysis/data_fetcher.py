@@ -159,11 +159,11 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
     except Exception:
         df = None
 
-    # ── 策略1：start/end + auto_adjust=True ─────────────────────────────
+    # ── 策略1：start/end + auto_adjust=False（避免除息調整導致價格偏移）─────
     if df is None:
         try:
             raw = tk.history(start=s_str, end=e_str,
-                             interval=interval, auto_adjust=True, actions=False)
+                             interval=interval, auto_adjust=False, actions=False)
             df = _clean(raw)
         except Exception:
             df = None

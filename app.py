@@ -2482,20 +2482,23 @@ def render_ticker(ctx: dict):
         _today     = _dt2.utcnow().strftime('%Y-%m-%d')
         _df_date   = df_latest
         _days_old  = (_dt2.strptime(_today,'%Y-%m-%d') - _dt2.strptime(_df_date,'%Y-%m-%d')).days
-        # 扣除週末（粗略）
         _trading_days_old = max(0, _days_old - (_days_old // 7) * 2)
+        # 抓取策略信息
+        _strategy  = getattr(df, "attrs", {}).get("strategy", "unknown")
+        _fetch_t   = getattr(df, "attrs", {}).get("fetch_time", "")
+        _strat_tip = f" [{_strategy}]" if _strategy not in ("none","unknown","") else ""
         if _trading_days_old >= 3:
             _fresh_badge = (f"<span style='background:#fdecea;color:#c0392b;border-radius:4px;"
                            f"padding:1px 7px;font-size:.66rem;margin-left:8px'>"
-                           f"⚠️ 數據最新至 {_df_date}（{_trading_days_old}個交易日前），請重新分析</span>")
+                           f"⚠️ 數據停在 {_df_date}（落後{_trading_days_old}交易日）{_strat_tip}　請重新分析</span>")
         elif _trading_days_old >= 1:
             _fresh_badge = (f"<span style='background:#fff3e0;color:#b07d2e;border-radius:4px;"
                            f"padding:1px 7px;font-size:.66rem;margin-left:8px'>"
-                           f"最新K線：{_df_date}</span>")
+                           f"最新K線：{_df_date}{_strat_tip}</span>")
         else:
             _fresh_badge = (f"<span style='background:#eaf4ee;color:#3d8c5f;border-radius:4px;"
                            f"padding:1px 7px;font-size:.66rem;margin-left:8px'>"
-                           f"✓ 最新</span>")
+                           f"✓ 最新 {_df_date}{_strat_tip}</span>")
     except Exception:
         _fresh_badge = f"<span style='font-size:.66rem;color:#9e9890;margin-left:8px'>最新K線：{df_latest}</span>"
 

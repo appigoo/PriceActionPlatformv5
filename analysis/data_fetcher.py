@@ -152,10 +152,13 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
     df = None
 
     # ── 策略0：curl_cffi 直接抓 Yahoo Finance API（最新，繞過延遲）────────
+    _strategy_used = "none"
     try:
         df = _fetch_via_curl(ticker, interval, lookback)
         if df is not None:
             df = _clean(df)
+        if df is not None:
+            _strategy_used = "curl_cffi"
     except Exception:
         df = None
 
@@ -165,21 +168,19 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
             raw = tk.history(start=s_str, end=e_str,
                              interval=interval, auto_adjust=False, actions=False)
             df = _clean(raw)
+            if df is not None:
+                _strategy_used = "yf_start_end_noadjust"
         except Exception:
             df = None
 
-    # ── 策略2：start/end + auto_adjust=False ────────────────────────────
+    # ── 策略2：start/end + auto_adjust=True ────────────────────────────
     if df is None:
         try:
             raw = tk.history(start=s_str, end=e_str,
-                             interval=interval, auto_adjust=False, actions=False)
-            if raw is not None and len(raw) >= 10:
-                # 手動用 Adj Close 調整（若有）
-                if 'Adj Close' in raw.columns:
-                    ratio = raw['Adj Close'] / raw['Close']
-                    for col in ['Open','High','Low','Close']:
-                        raw[col] = raw[col] * ratio
-                df = _clean(raw)
+                             interval=interval, auto_adjust=True, actions=False)
+            df = _clean(raw)
+            if df is not None:
+                _strategy_used = "yf_start_end_adjust"
         except Exception:
             df = None
 
@@ -189,11 +190,17 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
             period = INTERVAL_PERIOD_MAP.get(interval, "1y")
             raw = tk.history(period=period, interval=interval, auto_adjust=True)
             df = _clean(raw)
+            if df is not None:
+                _strategy_used = "yf_period"
         except Exception:
             df = None
 
     if df is None:
         return None
+
+    # 記錄使用的策略和最新日期（供 UI 顯示）
+    df.attrs['strategy'] = _strategy_used
+    df.attrs['fetch_time'] = datetime.utcnow().strftime('%H:%M:%S UTC')
 
     df = df.tail(bar_count)
     df.index = pd.to_datetime(df.index)

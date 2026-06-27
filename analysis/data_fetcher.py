@@ -141,7 +141,15 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
             return None
         # 儲存原始最新日期（清洗前）供診斷
         _raw_latest = str(df.index[-1])[:10] if len(df) > 0 else 'N/A'
-        df = df.dropna(subset=["Open","High","Low","Close"])
+        # 記錄 NaN 過濾情況
+        _nan_rows = df[df[["Open","High","Low","Close"]].isnull().any(axis=1)]
+        if len(_nan_rows) > 0:
+            df.attrs['filtered_nan'] = [str(d)[:10] for d in _nan_rows.index[-3:]]
+        # 只要求 Close 有值（Open/High/Low 缺失時用 Close 填補）
+        df = df.dropna(subset=["Close"])
+        df["Open"]  = df["Open"].fillna(df["Close"])
+        df["High"]  = df["High"].fillna(df["Close"])
+        df["Low"]   = df["Low"].fillna(df["Close"])
         if interval in INTRADAY_INTERVALS:
             df = _filter_trading_hours(df, interval)
         # 記錄零成交量過濾情況

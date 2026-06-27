@@ -220,7 +220,7 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
     df = df.tail(bar_count)
     df.index = pd.to_datetime(df.index)
 
-    # ── 新鮮度補充：若日線最新K線超過1天舊，用多種方法補抓 ─────────────────
+    # ── 新鮮度補充：若日線最新K線過舊，嘗試用 fast_info 補入最新收盤 ──────
     if interval == '1d':
         try:
             latest_date = df.index[-1].date()
@@ -228,52 +228,61 @@ def fetch_ohlcv(ticker: str, interval: str, bar_count: int = 120) -> pd.DataFram
             days_gap    = (today - latest_date).days
 
             if days_gap >= 2:
-                patch_raw = None
-
-                # 補抓方法1：yf.download()（不同端點，通常更新）
+                # 方法A：用 fast_info 取最新價格（不需要完整 OHLCV）
                 try:
-                    patch_dl = yf.download(
-                        ticker,
-                        period='5d',
-                        interval='1d',
-                        auto_adjust=True,
-                        progress=False,
-                        actions=False,
-                    )
-                    if patch_dl is not None and len(patch_dl) > 0:
-                        # yf.download 返回 MultiIndex，展平
-                        if isinstance(patch_dl.columns, pd.MultiIndex):
-                            patch_dl.columns = patch_dl.columns.get_level_values(0)
-                        patch_raw = patch_dl
+                    fi = tk.fast_info
+                    last_price = float(fi.last_price)
+                    last_vol   = float(fi.three_month_average_volume or 0)
+                    # 構造一根近似K線（OHLC 都用 last_price）
+                    from datetime import date as _date
+                    # 找最近的交易日（今天或昨天）
+                    target_date = today
+                    if today.weekday() >= 5:  # 週末用週五
+                        target_date = today - timedelta(days=today.weekday()-4)
+                    target_ts = pd.Timestamp(target_date)
+                    if target_ts not in df.index and target_ts > df.index[-1]:
+                        new_row = pd.DataFrame([{
+                            'Open': last_price, 'High': last_price,
+                            'Low':  last_price, 'Close': last_price,
+                            'Volume': last_vol,
+                        }], index=[target_ts])
+                        # 時區對齊
+                        if hasattr(df.index, 'tz') and df.index.tz is not None:
+                            df.index = df.index.tz_localize(None)
+                        df = pd.concat([df, new_row])
+                        df = df[~df.index.duplicated(keep='last')]
+                        df = df.sort_index()
+                        df.attrs['patched_with_fast_info'] = str(target_date)
                 except Exception:
                     pass
 
-                # 補抓方法2：history(period='5d') fallback
-                if patch_raw is None or len(patch_raw) == 0:
+                # 方法B：yf.download fallback
+                if df.index[-1].date() < today - timedelta(days=1):
                     try:
-                        patch_raw = tk.history(
-                            period='5d', interval='1d',
-                            auto_adjust=True, actions=False
+                        patch_dl = yf.download(
+                            ticker, period='5d', interval='1d',
+                            auto_adjust=False, progress=False,
                         )
+                        if patch_dl is not None and len(patch_dl) > 0:
+                            if isinstance(patch_dl.columns, pd.MultiIndex):
+                                patch_dl.columns = patch_dl.columns.get_level_values(0)
+                            patch_dl = patch_dl.dropna(subset=['Close'])
+                            patch_dl['Open']   = patch_dl['Open'].fillna(patch_dl['Close'])
+                            patch_dl['High']   = patch_dl['High'].fillna(patch_dl['Close'])
+                            patch_dl['Low']    = patch_dl['Low'].fillna(patch_dl['Close'])
+                            patch_dl['Volume'] = patch_dl['Volume'].fillna(0)
+                            patch_dl.index = pd.to_datetime(patch_dl.index)
+                            if hasattr(patch_dl.index,'tz') and patch_dl.index.tz:
+                                patch_dl.index = patch_dl.index.tz_localize(None)
+                            if hasattr(df.index,'tz') and df.index.tz:
+                                df.index = df.index.tz_localize(None)
+                            new_bars = patch_dl[patch_dl.index > df.index[-1]]
+                            if len(new_bars) > 0:
+                                df = pd.concat([df, new_bars])
+                                df = df[~df.index.duplicated(keep='last')]
+                                df = df.sort_index()
                     except Exception:
-                        patch_raw = None
-
-                # 合併新K線
-                if patch_raw is not None and len(patch_raw) > 0:
-                    patch_raw = patch_raw.dropna(subset=['Open','High','Low','Close'])
-                    if 'Volume' in patch_raw.columns:
-                        patch_raw = patch_raw[patch_raw['Volume'] > 0]
-                    patch_raw.index = pd.to_datetime(patch_raw.index)
-                    # 去時區使索引對齊
-                    if hasattr(patch_raw.index, 'tz') and patch_raw.index.tz is not None:
-                        patch_raw.index = patch_raw.index.tz_localize(None)
-                    if hasattr(df.index, 'tz') and df.index.tz is not None:
-                        df.index = df.index.tz_localize(None)
-                    new_bars = patch_raw[patch_raw.index > df.index[-1]]
-                    if len(new_bars) > 0:
-                        df = pd.concat([df, new_bars])
-                        df = df[~df.index.duplicated(keep='last')]
-                        df = df.sort_index()
+                        pass
         except Exception:
             pass
 

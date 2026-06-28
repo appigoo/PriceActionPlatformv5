@@ -48,24 +48,25 @@ def compute_scores(market_struct, volume_analysis, smart_money, signals) -> dict
     sell_score = signals.get('sell_score', 0)
     gap        = abs(buy_score - sell_score)   # 多空分差
 
-    # ── overall_rating 完全跟隨 primary，強度由分差決定 ──────────────────────
+    # ── overall_rating 完全跟隨 primary，強度由分差 + 信心共同決定 ────────────
     # 規則：
-    #   primary=BUY  → 只能是 強烈看多 / 偏多
-    #   primary=SELL → 只能是 強烈看空 / 偏空
+    #   primary=BUY  → 強烈看多（gap≥30 且 conf≥50）/ 偏多（其他）
+    #   primary=SELL → 強烈看空（gap≥30 且 conf≥50）/ 偏空（其他）
     #   primary=NEUTRAL → 中性
+    # 信心 < 50% 時即使分差大也不顯示「強烈」，避免高分低信心的矛盾
     if primary == 'BUY':
+        dominant_score = buy_score
         if gap >= 30:
-            overall_rating = "強烈看多 🚀"
+            overall_rating = "強烈看多 🚀"   # 先設強烈，信心確認後可能降級
         else:
             overall_rating = "偏多 📈"
-        dominant_score = buy_score
 
     elif primary == 'SELL':
+        dominant_score = sell_score
         if gap >= 30:
             overall_rating = "強烈看空 💀"
         else:
             overall_rating = "偏空 📉"
-        dominant_score = sell_score
 
     else:
         overall_rating = "中性 ⟷"
@@ -92,6 +93,13 @@ def compute_scores(market_struct, volume_analysis, smart_money, signals) -> dict
     if has_conflict:           conf_cap = min(conf_cap, 65)  # 型態矛盾 → 上限65%
     # 兩者同時 → 取最嚴格上限
     confidence = min(dominant_score, conf_cap)
+
+    # ── 信心降級：信心 < 50% 時「強烈」降為「偏向」────────────────────────
+    if confidence < 50:
+        if overall_rating == "強烈看多 🚀":
+            overall_rating = "偏多 📈"
+        elif overall_rating == "強烈看空 💀":
+            overall_rating = "偏空 📉"
 
     return {
         "trend_strength":    trend_strength,
